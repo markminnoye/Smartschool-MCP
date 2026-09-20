@@ -911,7 +911,8 @@ endpoints:
     module: studentcard
     observed_on: depass.smartschool.be parent/co-account
     library: unmapped
-    mcp_tool: none
+    mcp_tool: get_children
+    notes: Empty POST. MCP lists linked children for parent/co-accounts.
 
   - method: POST
     path: /Studentcard/Lvs/getLatestItems
@@ -965,8 +966,10 @@ endpoints:
     module: studentcard
     observed_on: depass.smartschool.be parent/co-account
     library: unmapped
-    mcp_tool: none
-    notes: HTML child-switch redirect. Path id is an account id; never store it.
+    mcp_tool: switch_child
+    notes: >
+      HTML child-switch redirect. Path id is an account id from getStudents;
+      do not commit it. After the redirect, planner/results follow the new child.
 
 
   # --- LVS ---

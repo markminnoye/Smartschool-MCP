@@ -20,6 +20,8 @@ EXPECTED_TOOLS = [
     "get_reports",
     "get_planned_elements",
     "get_student_support_links",
+    "get_children",
+    "switch_child",
     "get_homepage_blocks",
     "download_homepage_image",
 ]
@@ -188,6 +190,88 @@ def test_get_student_support_links_returns_error_on_exception() -> None:
         result = srv.get_student_support_links()
     assert isinstance(result, list)
     assert "error" in result[0]
+
+
+def test_get_children_returns_error_on_exception() -> None:
+    with patch("smartschool_mcp.server._session", side_effect=RuntimeError("network")):
+        result = srv.get_children()
+    assert isinstance(result, dict)
+    assert "error" in result
+    assert "network" in result["error"]
+
+
+def test_switch_child_returns_error_on_exception() -> None:
+    with patch("smartschool_mcp.server._session", side_effect=RuntimeError("network")):
+        result = srv.switch_child("12345")
+    assert isinstance(result, dict)
+    assert "error" in result
+
+
+def test_switch_child_rejects_invalid_account_id() -> None:
+    result = srv.switch_child("../etc/passwd")
+    assert result == {"error": "Invalid account_id"}
+
+
+def test_get_children_maps_studentcard_payload(mock_session: MagicMock) -> None:
+    mock_session.json.return_value = [
+        {
+            "accountID": 111,
+            "firstName": "Elliot",
+            "lastName": "Minnoye",
+            "className": "1bb",
+        },
+        {
+            "accountID": 222,
+            "firstName": "Other",
+            "lastName": "Child",
+            "className": "3a",
+        },
+    ]
+    mock_session.authenticated_user = {
+        "id": "49_1",
+        "firstName": "Elliot",
+        "lastName": "Minnoye",
+        "username": "elliot.minnoye",
+    }
+
+    result = srv.get_children()
+
+    mock_session.json.assert_called_once_with(
+        "/Studentcard/Student/getStudents", method="post"
+    )
+    assert result["total"] == 2
+    assert result["children"][0]["account_id"] == "111"
+    assert result["children"][0]["name"] == "Elliot Minnoye"
+    assert result["children"][0]["class_name"] == "1bb"
+    assert result["current"]["name"] == "Elliot Minnoye"
+
+
+def test_switch_child_hits_gotourl_and_refreshes_user(mock_session: MagicMock) -> None:
+    html = """
+    <html><script>
+    $.extend(true, SMSC, { vars : {"authenticatedUser": {
+      "id": "49_2", "firstName": "Other", "lastName": "Child"
+    }}});
+    </script></html>
+    """
+    mock_session.get.return_value = MagicMock(
+        ok=True,
+        text=html,
+        url="https://school.smartschool.be/",
+    )
+    mock_session.create_url.side_effect = lambda path: (
+        f"https://school.smartschool.be{path}"
+    )
+    mock_session.creds = MagicMock()
+    mock_session.creds.main_url = "school.smartschool.be"
+
+    result = srv.switch_child("222")
+
+    mock_session.get.assert_called_with("/Studentcard/Chain/gotourl/accountID/222")
+    assert result["ok"] is True
+    assert result["account_id"] == "222"
+    assert result["current"]["name"] == "Other Child"
+    assert mock_session.authenticated_user["id"] == "49_2"
 
 
 # ── Happy-path: verify tool processes library objects correctly ───────────────

@@ -7,10 +7,12 @@ messages and more.
 from __future__ import annotations
 
 import os
+import re
 import threading
 from datetime import date, timedelta
 from functools import lru_cache
 from typing import Any, TypedDict
+from urllib.parse import urlparse
 
 from cachetools import TTLCache, cached
 from mcp.server.fastmcp import FastMCP
@@ -186,6 +188,177 @@ def _planned_element_dict(element: object) -> dict[str, Any]:
             assignment_type.name if assignment_type is not None else None
         ),
     }
+
+
+_ACCOUNT_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_CHILD_LIST_KEYS = (
+    "students",
+    "children",
+    "accounts",
+    "items",
+    "data",
+    "results",
+    "list",
+)
+
+
+def _pick(data: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in data and data[key] not in (None, ""):
+            return data[key]
+    return None
+
+
+def _safe_account_id(account_id: str | int) -> str | None:
+    stripped = str(account_id).strip()
+    if not stripped or not _ACCOUNT_ID_RE.fullmatch(stripped):
+        return None
+    return stripped
+
+
+def _as_child_records(payload: Any) -> list[dict[str, Any]]:
+    """Unwrap POST /Studentcard/Student/getStudents into a list of dicts."""
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if not isinstance(payload, dict):
+        return []
+    for key in _CHILD_LIST_KEYS:
+        inner = payload.get(key)
+        if isinstance(inner, list):
+            return [item for item in inner if isinstance(item, dict)]
+    if any(
+        key in payload
+        for key in ("accountID", "accountId", "account_id", "firstName", "lastName")
+    ):
+        return [payload]
+    return []
+
+
+def _person_name(data: dict[str, Any]) -> str | None:
+    first = _pick(data, "firstName", "first_name", "voornaam")
+    last = _pick(data, "lastName", "last_name", "surname", "naam")
+    if isinstance(first, str) and isinstance(last, str):
+        joined = f"{first} {last}".strip()
+        if joined:
+            return joined
+    name = _pick(data, "name", "fullName", "full_name")
+    if isinstance(name, dict):
+        nested = _pick(
+            name,
+            "starting_with_first_name",
+            "startingWithFirstName",
+            "firstName",
+        )
+        if isinstance(nested, str) and nested.strip():
+            return nested.strip()
+        nested = _pick(
+            name,
+            "starting_with_last_name",
+            "startingWithLastName",
+            "lastName",
+        )
+        if isinstance(nested, str) and nested.strip():
+            return nested.strip()
+        return None
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    if isinstance(first, str) and first.strip():
+        return first.strip()
+    if isinstance(last, str) and last.strip():
+        return last.strip()
+    return None
+
+
+def _person_dict(data: dict[str, Any]) -> dict[str, Any]:
+    """Map a Studentcard / authenticatedUser object to stable MCP fields."""
+    account_id = _pick(data, "accountID", "accountId", "account_id")
+    user_id = _pick(data, "id", "userID", "userId", "user_id")
+    return {
+        "account_id": None if account_id is None else str(account_id),
+        "user_id": None if user_id is None else str(user_id),
+        "username": _pick(data, "username", "userName", "user_name"),
+        "name": _person_name(data),
+        "first_name": _pick(data, "firstName", "first_name", "voornaam"),
+        "last_name": _pick(data, "lastName", "last_name", "surname"),
+        "class_name": _pick(data, "className", "class_name", "class", "klas"),
+        "platform": _pick(
+            data,
+            "platform",
+            "platformUrl",
+            "platform_url",
+            "mainUrl",
+            "main_url",
+        ),
+        "is_current": _pick(data, "isCurrent", "is_current", "current"),
+    }
+
+
+def _current_user_dict(session: Smartschool) -> dict[str, Any] | None:
+    try:
+        user = session.authenticated_user
+    except Exception:
+        return None
+    if not isinstance(user, dict):
+        return None
+    return _person_dict(user)
+
+
+def _mark_current_child(
+    child: dict[str, Any], current: dict[str, Any] | None
+) -> dict[str, Any]:
+    if child.get("is_current") in (True, False):
+        return child
+    if current is None:
+        return child
+    for key in ("account_id", "user_id", "username"):
+        left = child.get(key)
+        right = current.get(key)
+        if left is not None and right is not None and str(left) == str(right):
+            child["is_current"] = True
+            return child
+    child["is_current"] = False
+    return child
+
+
+def _authenticated_user_from_response(
+    session: Smartschool, response: Any
+) -> dict | None:
+    html = _parse_html(response)
+    try:
+        from smartschool._common import parse_smsc_vars
+    except ImportError:
+        return None
+    for script in html.select("script"):
+        if script.get("src"):
+            continue
+        text = script.string or script.get_text() or ""
+        if "authenticatedUser" not in text:
+            continue
+        user = parse_smsc_vars(text).get("authenticatedUser")
+        if isinstance(user, dict):
+            session.authenticated_user = user
+            return user
+    return None
+
+
+def _follow_switched_host(session: Smartschool, response: Any) -> str | None:
+    """If Mijn kinderen jumped to another school host, retarget the session."""
+    final_url = getattr(response, "url", "") or ""
+    new_host = urlparse(final_url).netloc
+    if not new_host:
+        return None
+    try:
+        current_host = urlparse(session.create_url("/")).netloc
+    except Exception:
+        current_host = ""
+    if not current_host or new_host == current_host:
+        return None
+    creds = getattr(session, "creds", None)
+    if creds is None or not hasattr(creds, "main_url"):
+        return new_host
+    object.__setattr__(creds, "main_url", new_host)
+    session.__dict__.pop("_url", None)
+    return new_host
 
 
 @mcp.tool()
@@ -720,6 +893,90 @@ def get_student_support_links() -> list[dict[str, Any]]:
         return [{"error": f"Failed to retrieve support links: {e!s}"}]
 
 
+@mcp.tool()
+def get_children() -> dict[str, Any]:
+    """
+    List children linked on Mijn kinderen for this parent/co-account.
+
+    Same portal call as the website: POST /Studentcard/Student/getStudents.
+    Use ``account_id`` with switch_child to change whose Planner, results,
+    and messages the other tools return. One login does not merge every
+    child automatically — the session stays on the currently selected child.
+
+    Returns:
+        Dictionary with ``children``, ``current`` (the active session user),
+        and ``total``.
+    """
+    try:
+        session = _session()
+        session.ensure_authenticated()
+        payload = session.json("/Studentcard/Student/getStudents", method="post")
+        current = _current_user_dict(session)
+        children = [
+            _mark_current_child(_person_dict(raw), current)
+            for raw in _as_child_records(payload)
+        ]
+        return {
+            "children": children,
+            "current": current,
+            "total": len(children),
+        }
+    except Exception as e:
+        return {"error": f"Failed to retrieve children: {e!s}"}
+
+
+@mcp.tool()
+def switch_child(account_id: str) -> dict[str, Any]:
+    """
+    Switch the session to another linked child (Mijn kinderen).
+
+    Same portal call as the website: GET
+    /Studentcard/Chain/gotourl/accountID/{accountId}. After a successful
+    switch, get_schedule / get_planned_elements / get_results follow the
+    newly selected child. Get account_id from get_children.
+
+    Args:
+        account_id: Linked-account id from get_children (not the Planner
+            user id). Digits, letters, underscore, and hyphen only.
+
+    Returns:
+        Dictionary with the new ``current`` user, optional ``switched_host``
+        when the chain landed on another school platform, and ``ok``.
+    """
+    try:
+        safe_id = _safe_account_id(account_id)
+        if safe_id is None:
+            return {"error": "Invalid account_id"}
+
+        session = _session()
+        session.ensure_authenticated()
+        response = session.get(f"/Studentcard/Chain/gotourl/accountID/{safe_id}")
+        if not getattr(response, "ok", True):
+            status = getattr(response, "status_code", "?")
+            return {"error": f"Child switch failed: HTTP {status}"}
+
+        switched_host = _follow_switched_host(session, response)
+        user = _authenticated_user_from_response(session, response)
+        if user is None:
+            user = _authenticated_user_from_response(session, session.get("/"))
+
+        current = (
+            _person_dict(user)
+            if isinstance(user, dict)
+            else _current_user_dict(session)
+        )
+        result: dict[str, Any] = {
+            "ok": True,
+            "account_id": safe_id,
+            "current": current,
+        }
+        if switched_host:
+            result["switched_host"] = switched_host
+        return result
+    except Exception as e:
+        return {"error": f"Failed to switch child: {e!s}"}
+
+
 def _attachment_file_id(att: object) -> object | None:
     """Return an Attachment's file id.
 
@@ -852,14 +1109,19 @@ def _parse_html(response: Any) -> Any:
     ``smartschool.bs4_html`` is not exported by every release, so fall back to
     BeautifulSoup directly rather than failing at import time.
     """
+    markup: Any
+    if isinstance(response, (str, bytes)):
+        markup = response
+    else:
+        markup = getattr(response, "text", response)
     try:
         from smartschool import bs4_html
 
-        return bs4_html(response)
+        return bs4_html(markup)
     except Exception:
         from bs4 import BeautifulSoup
 
-        return BeautifulSoup(response.text, "html.parser")
+        return BeautifulSoup(markup, "html.parser")
 
 
 def _absolutise(session: Smartschool, url: str) -> str:

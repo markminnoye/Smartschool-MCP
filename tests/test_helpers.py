@@ -5,7 +5,13 @@ from __future__ import annotations
 from datetime import date, datetime
 from unittest.mock import MagicMock
 
-from smartschool_mcp.server import _safe_format_date, _safe_get_teacher_names
+from smartschool_mcp.server import (
+    _as_child_records,
+    _person_dict,
+    _safe_account_id,
+    _safe_format_date,
+    _safe_get_teacher_names,
+)
 
 # ── _safe_format_date ─────────────────────────────────────────────────────────
 
@@ -68,3 +74,42 @@ def test_safe_get_teacher_names_handles_attribute_error() -> None:
     teacher = MagicMock(spec=[])  # no attributes
     result = _safe_get_teacher_names([teacher])
     assert result == []
+
+
+# ── Mijn kinderen helpers ─────────────────────────────────────────────────────
+
+
+def test_as_child_records_unwraps_students_key() -> None:
+    records = _as_child_records({"students": [{"accountID": 1}, "skip"]})
+    assert records == [{"accountID": 1}]
+
+
+def test_as_child_records_accepts_a_bare_list() -> None:
+    assert _as_child_records([{"accountID": 1}, {"accountID": 2}]) == [
+        {"accountID": 1},
+        {"accountID": 2},
+    ]
+
+
+def test_person_dict_maps_studentcard_fields() -> None:
+    mapped = _person_dict(
+        {
+            "accountID": 111,
+            "firstName": "Elliot",
+            "lastName": "Minnoye",
+            "className": "1bb",
+            "platform": "depass.smartschool.be",
+        }
+    )
+    assert mapped["account_id"] == "111"
+    assert mapped["name"] == "Elliot Minnoye"
+    assert mapped["class_name"] == "1bb"
+    assert mapped["platform"] == "depass.smartschool.be"
+
+
+def test_safe_account_id_rejects_path_injection() -> None:
+    assert _safe_account_id("12345") == "12345"
+    assert _safe_account_id("49_10880_2") == "49_10880_2"
+    assert _safe_account_id("../etc/passwd") is None
+    assert _safe_account_id("1/2") is None
+    assert _safe_account_id("") is None
