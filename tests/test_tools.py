@@ -329,8 +329,10 @@ def test_switch_child_hits_gotourl_and_refreshes_user(mock_session: MagicMock) -
     """
     mock_session.get.return_value = MagicMock(
         ok=True,
+        status_code=200,
         text=html,
         url="https://school.smartschool.be/",
+        headers={},
     )
     mock_session.create_url.side_effect = lambda path: (
         f"https://school.smartschool.be{path}"
@@ -340,11 +342,67 @@ def test_switch_child_hits_gotourl_and_refreshes_user(mock_session: MagicMock) -
 
     result = srv.switch_child("222")
 
-    mock_session.get.assert_called_with("/Studentcard/Chain/gotourl/accountID/222")
+    mock_session.get.assert_called_with(
+        "/Studentcard/Chain/gotourl/accountID/222",
+        allow_redirects=False,
+    )
     assert result["ok"] is True
     assert result["account_id"] == "222"
     assert result["current"]["name"] == "Other Child"
     assert mock_session.authenticated_user["id"] == "49_2"
+
+
+def test_switch_child_follows_cross_host_otp_redirect(
+    mock_session: MagicMock,
+) -> None:
+    landing_html = """
+    <html><script>
+    $.extend(true, SMSC, { vars : {"authenticatedUser": {
+      "id": "33_2", "firstName": "Other", "lastName": "Child"
+    }}});
+    </script></html>
+    """
+    gotourl = MagicMock(
+        status_code=302,
+        ok=False,
+        text="",
+        url="https://school.smartschool.be/Studentcard/Chain/gotourl/accountID/222",
+        headers={"Location": "https://other.smartschool.be/otp/token"},
+        history=[],
+    )
+    landing = MagicMock(
+        status_code=200,
+        ok=True,
+        text=landing_html,
+        url="https://other.smartschool.be/Studentcard",
+        headers={},
+        history=[],
+    )
+
+    def fake_get(url: str, **kwargs: object) -> MagicMock:
+        if "gotourl" in str(url):
+            return gotourl
+        return landing
+
+    mock_session.get.side_effect = fake_get
+    mock_session.create_url.side_effect = lambda path: (
+        f"https://{mock_session.creds.main_url}{path}"
+        if str(path).startswith("/")
+        else str(path)
+    )
+    mock_session.creds = MagicMock()
+    mock_session.creds.main_url = "school.smartschool.be"
+
+    result = srv.switch_child("222")
+
+    assert result["ok"] is True
+    assert result["switched_host"] == "other.smartschool.be"
+    assert mock_session.creds.main_url == "other.smartschool.be"
+    assert result["current"]["name"] == "Other Child"
+    mock_session.get.assert_any_call(
+        "https://other.smartschool.be/otp/token",
+        allow_redirects=False,
+    )
 
 
 # ── Happy-path: verify tool processes library objects correctly ───────────────

@@ -973,7 +973,9 @@ endpoints:
     mcp_tool: switch_child
     notes: >
       HTML child-switch redirect. Path id is an account id from getStudents;
-      do not commit it. After the redirect, planner/results follow the new child.
+      do not commit it. Cross-school children 302 to ``/otp/{token}`` on the
+      other host; follow that hop and retarget ``main_url``. After the
+      redirect, planner/results follow the new child.
 
 
   # --- LVS ---

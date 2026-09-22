@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `get_children` — list linked children on Mijn kinderen (`POST /Studentcard/Student/getStudents` with XHR headers; topnav gotourl fills the current child's switch id when `accountID` is 0)
-- `switch_child(account_id)` — switch the session to another linked child (`GET /Studentcard/Chain/gotourl/accountID/{accountId}`); Planner/results then follow that child
+- `switch_child(account_id)` — switch the session to another linked child (`GET /Studentcard/Chain/gotourl/accountID/{accountId}`); Planner/results then follow that child. Cross-school hops (De Ring `/otp/...`) are followed without replaying the original host.
 - Read-only portal catalog smoke (`scripts/smoke_portal.py`): same `Smartschool` login+cookie session as the MCP, legacy library rows first, then HAR GETs. Writes/auth/unmapped XML POSTs are skipped; CI never runs it (`PORTAL_SMOKE=1` + `pytest -m integration`).
 - `get_attachments(message_id)` — list all attachments for a message (name, mime type, size, file ID)
 - `download_attachment(message_id, file_id, save_path?)` — download an attachment; defaults to `~/Downloads/smartschool/`, accepts optional `save_path`

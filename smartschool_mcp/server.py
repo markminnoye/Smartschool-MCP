@@ -12,7 +12,7 @@ import threading
 from datetime import date, timedelta
 from functools import lru_cache
 from typing import Any, TypedDict
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from cachetools import TTLCache, cached
 from mcp.server.fastmcp import FastMCP
@@ -446,10 +446,17 @@ def _authenticated_user_from_response(
     return None
 
 
-def _follow_switched_host(session: Smartschool, response: Any) -> str | None:
-    """If Mijn kinderen jumped to another school host, retarget the session."""
-    final_url = getattr(response, "url", "") or ""
-    new_host = urlparse(final_url).netloc
+_AUTH_PATH_SEGMENTS = {"login", "account-verification", "2fa"}
+_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+
+
+def _url_is_auth(url: str) -> bool:
+    return bool(_AUTH_PATH_SEGMENTS & set(urlparse(url).path.split("/")))
+
+
+def _retarget_session_host(session: Smartschool, url: str) -> str | None:
+    """Point the session at another Smartschool host after a child-chain hop."""
+    new_host = urlparse(url).netloc
     if not new_host:
         return None
     try:
@@ -463,7 +470,64 @@ def _follow_switched_host(session: Smartschool, response: Any) -> str | None:
         return new_host
     object.__setattr__(creds, "main_url", new_host)
     session.__dict__.pop("_url", None)
+    session.__dict__.pop("platform_id", None)
     return new_host
+
+
+def _follow_switched_host(session: Smartschool, response: Any) -> str | None:
+    """If Mijn kinderen jumped to another school host, retarget the session."""
+    return _retarget_session_host(session, getattr(response, "url", "") or "")
+
+
+def _redirect_location(response: Any) -> str | None:
+    status = getattr(response, "status_code", None)
+    if status not in _REDIRECT_STATUSES:
+        return None
+    headers = getattr(response, "headers", None) or {}
+    location = headers.get("Location") or headers.get("location")
+    if not isinstance(location, str) or not location.strip():
+        return None
+    current = str(getattr(response, "url", "") or "")
+    return urljoin(current, location.strip())
+
+
+def _follow_child_switch_redirects(
+    session: Smartschool, start_path: str
+) -> tuple[Any, str | None]:
+    """Follow gotourl hops without replaying the original host after OTP/auth.
+
+    Cross-school children 302 to ``https://other.smartschool.be/otp/...``. The
+    smartschool session would then finish De Ring login and replay the original
+    De Pass gotourl, dropping the new cookies. Hop-by-hop avoids that replay.
+    """
+    url: str = start_path
+    switched_host: str | None = None
+    response: Any = None
+    for _ in range(12):
+        response = session.get(url, allow_redirects=False)
+        switched_host = (
+            _retarget_session_host(session, getattr(response, "url", "") or "")
+            or switched_host
+        )
+        location = _redirect_location(response)
+        if location:
+            switched_host = _retarget_session_host(session, location) or switched_host
+            url = location
+            continue
+        current_url = str(getattr(response, "url", "") or url)
+        if _url_is_auth(current_url):
+            switched_host = (
+                _retarget_session_host(session, current_url) or switched_host
+            )
+            response = session.get(current_url, allow_redirects=True)
+            switched_host = (
+                _retarget_session_host(
+                    session, getattr(response, "url", "") or current_url
+                )
+                or switched_host
+            )
+        break
+    return response, switched_host
 
 
 @mcp.tool()
@@ -1053,9 +1117,11 @@ def switch_child(account_id: str) -> dict[str, Any]:
     Switch the session to another linked child (Mijn kinderen).
 
     Same portal call as the website: GET
-    /Studentcard/Chain/gotourl/accountID/{accountId}. After a successful
-    switch, get_schedule / get_planned_elements / get_results follow the
-    newly selected child. Get account_id from get_children.
+    /Studentcard/Chain/gotourl/accountID/{accountId}. A child on another
+    platform (e.g. De Ring) 302s to a one-time ``/otp/...`` URL; that hop is
+    followed without replaying the original host. After a successful switch,
+    get_schedule / get_planned_elements / get_results follow the newly
+    selected child. Get account_id from get_children.
 
     Args:
         account_id: Linked-account id from get_children (not the Planner
@@ -1072,12 +1138,15 @@ def switch_child(account_id: str) -> dict[str, Any]:
 
         session = _session()
         session.ensure_authenticated()
-        response = session.get(f"/Studentcard/Chain/gotourl/accountID/{safe_id}")
-        if not getattr(response, "ok", True):
-            status = getattr(response, "status_code", "?")
+        path = f"/Studentcard/Chain/gotourl/accountID/{safe_id}"
+        response, switched_host = _follow_child_switch_redirects(session, path)
+        if response is None:
+            return {"error": "Child switch failed: empty response"}
+        status = getattr(response, "status_code", 0)
+        if status not in _REDIRECT_STATUSES and not getattr(response, "ok", True):
             return {"error": f"Child switch failed: HTTP {status}"}
 
-        switched_host = _follow_switched_host(session, response)
+        switched_host = _follow_switched_host(session, response) or switched_host
         user = _authenticated_user_from_response(session, response)
         if user is None:
             user = _authenticated_user_from_response(session, session.get("/"))
