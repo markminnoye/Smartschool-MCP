@@ -6,7 +6,8 @@
 #   parent/co-account on depass.smartschool.be and dering.smartschool.be
 #   (file overwritten later the same day: De Ring Intradesk / Zoeken / Vakken
 #   course folders, then again with Meldingen /Profile/Notify; keys merged below)
-# - Installed svaningelgem/smartschool locally from vendor/smartschool
+# - Chrome HAR docs/portal-api/raw/switch-child-depass-to-dering.har (gitignored), 2026-09-22
+#   Mijn kinderen switch: gotourl → /otp/{token} → relative /Studentcard
 #   (planner-calendar-1to1: omit types by default, PinnedPlannedElements)
 #
 # observed_on: "depass.smartschool.be parent/co-account"
@@ -911,7 +912,12 @@ endpoints:
     module: studentcard
     observed_on: depass.smartschool.be parent/co-account
     library: unmapped
-    mcp_tool: none
+    mcp_tool: get_children
+    notes: >
+      Empty POST. De Pass returns HTTP 500 HTML unless the request sends
+      X-Requested-With: XMLHttpRequest (then application/json list). Current
+      child can have accountID 0; switch ids are in the Studentcard topnav
+      gotourl links. MCP get_children sends the XHR header and merges topnav ids.
 
   - method: POST
     path: /Studentcard/Lvs/getLatestItems
@@ -965,8 +971,15 @@ endpoints:
     module: studentcard
     observed_on: depass.smartschool.be parent/co-account
     library: unmapped
-    mcp_tool: none
-    notes: HTML child-switch redirect. Path id is an account id; never store it.
+    mcp_tool: switch_child
+    notes: >
+      HTML child-switch redirect. Path id is an account id from getStudents;
+      do not commit it. Cross-school children 302 to ``/otp/{token}`` on the
+      other host. A trusted browser then 302s from OTP with relative
+      ``Location: /Studentcard`` (no ``/login``, no ``/account-verification``).
+      Follow hop-by-hop, retarget ``main_url``, and do not POST this session's
+      password if OTP instead lands on ``/login``. After the redirect,
+      planner/results follow the new child.
 
 
   # --- LVS ---

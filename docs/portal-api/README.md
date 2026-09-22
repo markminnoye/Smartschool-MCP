@@ -68,7 +68,7 @@ Library pin used for this seed: `svaningelgem/smartschool` git commit `5bb98a86`
 | Homepage HTML (`GET /`) + homepage dispatcher | catalogued | Live HAR |
 | Auth / 2FA | catalogued | Library + live `GET /account-verification` on De Ring |
 | Start | catalogued | Live HAR |
-| Mijn kinderen / Studentcard | catalogued | Live HAR |
+| Mijn kinderen / Studentcard | catalogued | Live HAR; MCP `get_children` + `switch_child` wrap list/switch |
 | Vakken UI (live) | catalogued | Course list + `getCourseConfig` + course-folder HTML (Documents, Uploadzone, Weblinks, Classmates, Lpaths, Tasks, video-call, Exercises, Cooperate, Forum, course news) |
 | Berichten UI (live) | catalogued | Live HAR |
 | Resultaten UI (live) | catalogued | Live HAR |

@@ -53,8 +53,9 @@ Start / studentcard / LVS / other nav (all unmapped):
 | `POST /Homepage/Setting/getConfig` | Start shell |
 | `POST /Homepage/Pushwizard/getwizardconfig` | Push wizard |
 | `POST /Homepage/Pushwizard/saveactivation` | Push wizard |
-| `POST /Studentcard/*` | Child overview widgets (config, students, LVS, messages, presence, evaluations, reports) |
-| `GET /Studentcard/Chain/gotourl/accountID/{accountId}` | Child switch (HTML) |
+| `POST /Studentcard/Student/getStudents` | Child list on Mijn kinderen (`get_children`; XHR header required, topnav gotourl fills accountID 0) |
+| `GET /Studentcard/Chain/gotourl/accountID/{accountId}` | Child switch HTML (`switch_child`) |
+| `POST /Studentcard/*` (config, LVS, messages, presence, evaluations, reports) | Child overview widgets |
 | `POST /?module=LVS&file=dispatcher` | Several `lvs` / `lvs_groups` / `lvs_pupils` actions |
 | `GET`/`POST /?module=LVS&file=jqDispatcher_*` | Settings and group tree helpers |
 | `POST /?module=LVS&file=treeBuilder` | Group tree |
@@ -116,11 +117,11 @@ These are still called by the library. They did **not** appear in this live HAR.
 | `GET /intradesk/api/v1/{platformId}/files/{fileId}/download` | `IntradeskFile` | Unknown — listing/favourite were opened; download was not |
 | `GET /Documents/Index/Index/courseID/{courseId}/ssID/{platformId}` | `FolderItem` | **Seen live** on De Ring (plus `parentID/{folderId}` subfolder) |
 | Messages compose / searchUsers / archive / attachment download / mark unread / label / trash | `MessageComposerForm` and related | Unknown — inbox list/detail were opened; compose was not |
-| `POST /login` / `POST /account-verification` / `2fa/api/v1/…` | `Smartschool` | Session already existed; De Ring showed `GET /account-verification` only |
+| `POST /login` / `POST /account-verification` / `2fa/api/v1/…` | `Smartschool` | Trusted-browser switch (2026-09-22 HAR): OTP 302 to relative `/Studentcard`, no login POST. New-device sessions may still see `GET /account-verification`. |
 
 ## MCP column (info only)
 
-Do not invent extra MCP tools from the leftover catalog (calendars, labels, studentcard, …).
+Do not invent extra MCP tools from the leftover catalog (calendars, labels, …). Mijn kinderen list/switch is the exception: parent/co-accounts need `get_children` + `switch_child` or Planner stays on one child.
 
 | MCP tool | Library | Website timetable? |
 |----------|---------|--------------------|
@@ -132,7 +133,9 @@ Do not invent extra MCP tools from the leftover catalog (calendars, labels, stud
 | `get_messages` / `get_attachments` / `download_attachment` | Messages XML | Inbox list/detail live; attachments/download not in this HAR |
 | `get_student_support_links` | `StudentSupportLinks` | Live |
 | `get_homepage_blocks` / `download_homepage_image` | none (HTML `GET /`) | Live Start page; homepage dispatcher XML is extra and unmapped |
-| *(none)* | — | Calendars, labels, group-filters, timetable SPA, studentcard, LVS, forms, photos, contact-moments, Intradesk, Zoeken, Uploadzone, video-call, Meldingen (`/Profile/Notify`). Pinned elements are wrapped as `PinnedPlannedElements` (no extra MCP tool). |
+| `get_children` | none (`POST /Studentcard/Student/getStudents`) | Mijn kinderen list |
+| `switch_child` | none (`GET /Studentcard/Chain/gotourl/accountID/{accountId}`) | Mijn kinderen switch |
+| *(none)* | — | Calendars, labels, group-filters, timetable SPA, studentcard widgets, LVS, forms, photos, contact-moments, Intradesk, Zoeken, Uploadzone, video-call, Meldingen (`/Profile/Notify`). Pinned elements are wrapped as `PinnedPlannedElements` (no extra MCP tool). |
 
 When changing planner tools: mirror the website query (`from`, `to`, optional `types`, optional `includes`) and pass through `plannedElementType` / `period` rather than reshaping into Agenda names.
 

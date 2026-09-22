@@ -7,10 +7,13 @@ messages and more.
 from __future__ import annotations
 
 import os
+import re
 import threading
+from contextlib import contextmanager
 from datetime import date, timedelta
 from functools import lru_cache
 from typing import Any, TypedDict
+from urllib.parse import urljoin, urlparse
 
 from cachetools import TTLCache, cached
 from mcp.server.fastmcp import FastMCP
@@ -186,6 +189,477 @@ def _planned_element_dict(element: object) -> dict[str, Any]:
             assignment_type.name if assignment_type is not None else None
         ),
     }
+
+
+_ACCOUNT_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_GOTOURL_RE = re.compile(
+    r"/Studentcard/Chain/gotourl/accountID/([A-Za-z0-9_-]+)"
+    r"""[^>]*>\s*(?:<img\b[^>]*>\s*)?<span>([^<]+)</span>""",
+    re.IGNORECASE | re.DOTALL,
+)
+_STUDENTCARD_XHR_HEADERS = {
+    "X-Requested-With": "XMLHttpRequest",
+    "Accept": "application/json",
+}
+_CHILD_LIST_KEYS = (
+    "students",
+    "children",
+    "accounts",
+    "items",
+    "data",
+    "results",
+    "list",
+)
+
+
+def _pick(data: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in data and data[key] not in (None, ""):
+            return data[key]
+    return None
+
+
+def _string_field(data: dict[str, Any], *keys: str) -> str | None:
+    value = _pick(data, *keys)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _safe_account_id(account_id: str | int) -> str | None:
+    stripped = str(account_id).strip()
+    if not stripped or stripped == "0" or not _ACCOUNT_ID_RE.fullmatch(stripped):
+        return None
+    return stripped
+
+
+def _as_child_records(payload: Any) -> list[dict[str, Any]]:
+    """Unwrap POST /Studentcard/Student/getStudents into a list of dicts."""
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if not isinstance(payload, dict):
+        return []
+    for key in _CHILD_LIST_KEYS:
+        inner = payload.get(key)
+        if isinstance(inner, list):
+            return [item for item in inner if isinstance(item, dict)]
+    if any(
+        key in payload
+        for key in ("accountID", "accountId", "account_id", "firstName", "lastName")
+    ):
+        return [payload]
+    return []
+
+
+def _first_name_value(data: dict[str, Any]) -> str | None:
+    first = _string_field(data, "firstName", "first_name", "voornaam")
+    if first:
+        return first
+    name = data.get("name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    return None
+
+
+def _person_name(data: dict[str, Any]) -> str | None:
+    bin_name = _string_field(data, "fullNameBIN", "full_name_bin")
+    if bin_name:
+        return bin_name
+    first = _first_name_value(data)
+    last = _string_field(data, "lastName", "last_name", "surname", "naam")
+    if first and last:
+        return f"{first} {last}".strip()
+    full = _string_field(data, "fullName", "full_name")
+    if full:
+        return full
+    name = data.get("name")
+    if isinstance(name, dict):
+        nested = _pick(
+            name,
+            "starting_with_first_name",
+            "startingWithFirstName",
+            "firstName",
+        )
+        if isinstance(nested, str) and nested.strip():
+            return nested.strip()
+        nested = _pick(
+            name,
+            "starting_with_last_name",
+            "startingWithLastName",
+            "lastName",
+        )
+        if isinstance(nested, str) and nested.strip():
+            return nested.strip()
+        return None
+    if first:
+        return first
+    if last:
+        return last
+    return None
+
+
+def _person_dict(data: dict[str, Any]) -> dict[str, Any]:
+    """Map a Studentcard / authenticatedUser object to stable MCP fields."""
+    account_id = _safe_account_id(
+        _pick(data, "accountID", "accountId", "account_id") or ""
+    )
+    user_id = _pick(data, "id", "userID", "userId", "user_id")
+    return {
+        "account_id": account_id,
+        "user_id": None if user_id is None else str(user_id),
+        "username": _pick(data, "username", "userName", "user_name"),
+        "name": _person_name(data),
+        "first_name": _first_name_value(data),
+        "last_name": _string_field(data, "lastName", "last_name", "surname"),
+        "class_name": _string_field(data, "className", "class_name", "class", "klas"),
+        "platform": _pick(
+            data,
+            "platform",
+            "platformUrl",
+            "platform_url",
+            "mainUrl",
+            "main_url",
+        ),
+        "is_current": _pick(
+            data, "isCurrentUser", "isCurrent", "is_current", "current"
+        ),
+    }
+
+
+def _empty_person(
+    *,
+    account_id: str | None = None,
+    name: str | None = None,
+    first_name: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "account_id": account_id,
+        "user_id": None,
+        "username": None,
+        "name": name,
+        "first_name": first_name,
+        "last_name": None,
+        "class_name": None,
+        "platform": None,
+        "is_current": None,
+    }
+
+
+def _children_from_topnav(html: str) -> list[dict[str, Any]]:
+    """Parse Mijn kinderen switch links from the Studentcard HTML shell."""
+    children: list[dict[str, Any]] = []
+    if not isinstance(html, str) or not html:
+        return children
+    seen: set[str] = set()
+    for match in _GOTOURL_RE.finditer(html):
+        account_id = _safe_account_id(match.group(1))
+        first_name = match.group(2).strip()
+        if not account_id or not first_name or account_id in seen:
+            continue
+        seen.add(account_id)
+        children.append(
+            _empty_person(
+                account_id=account_id,
+                name=first_name,
+                first_name=first_name,
+            )
+        )
+    return children
+
+
+def _merge_topnav_children(
+    json_children: list[dict[str, Any]],
+    html_children: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Fill missing switch ids from topnav; keep HTML-only siblings."""
+    used: set[str] = set()
+    merged: list[dict[str, Any]] = []
+    for child in json_children:
+        updated = dict(child)
+        if not updated.get("account_id"):
+            first = (
+                (updated.get("first_name") or updated.get("name") or "").strip().lower()
+            )
+            for html_child in html_children:
+                html_id = html_child.get("account_id")
+                html_name = (html_child.get("first_name") or "").strip().lower()
+                if html_id and html_id not in used and first and first == html_name:
+                    updated["account_id"] = html_id
+                    used.add(html_id)
+                    break
+        account_id = updated.get("account_id")
+        if isinstance(account_id, str) and account_id:
+            used.add(account_id)
+        merged.append(updated)
+    for html_child in html_children:
+        html_id = html_child.get("account_id")
+        if isinstance(html_id, str) and html_id and html_id not in used:
+            merged.append(html_child)
+            used.add(html_id)
+    return merged
+
+
+def _current_user_dict(session: Smartschool) -> dict[str, Any] | None:
+    try:
+        user = session.authenticated_user
+    except Exception:
+        return None
+    if not isinstance(user, dict):
+        return None
+    return _person_dict(user)
+
+
+def _mark_current_child(
+    child: dict[str, Any], current: dict[str, Any] | None
+) -> dict[str, Any]:
+    if child.get("is_current") in (True, False):
+        return child
+    if current is None:
+        return child
+    for key in ("account_id", "user_id", "username"):
+        left = child.get(key)
+        right = current.get(key)
+        if left is not None and right is not None and str(left) == str(right):
+            child["is_current"] = True
+            return child
+    child["is_current"] = False
+    return child
+
+
+def _authenticated_user_from_response(
+    session: Smartschool, response: Any
+) -> dict | None:
+    html = _parse_html(response)
+    try:
+        from smartschool._common import parse_smsc_vars
+    except ImportError:
+        return None
+    for script in html.select("script"):
+        if script.get("src"):
+            continue
+        text = script.string or script.get_text() or ""
+        if "authenticatedUser" not in text:
+            continue
+        user = parse_smsc_vars(text).get("authenticatedUser")
+        if isinstance(user, dict):
+            session.authenticated_user = user
+            return user
+    return None
+
+
+_AUTH_PATH_SEGMENTS = {"login", "account-verification", "2fa"}
+_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+
+
+def _url_is_auth(url: str) -> bool:
+    return bool(_AUTH_PATH_SEGMENTS & set(urlparse(url).path.split("/")))
+
+
+def _url_is_login(url: str) -> bool:
+    return "login" in set(urlparse(url).path.split("/"))
+
+
+def _is_foreign_host(url: str, origin_host: str) -> bool:
+    host = urlparse(url).netloc
+    return bool(host and origin_host and host != origin_host)
+
+
+def _is_foreign_login(url: str, origin_host: str) -> bool:
+    """True when ``url`` is a login page on a host other than the origin session."""
+    return _url_is_login(url) and _is_foreign_host(url, origin_host)
+
+
+_BROWSER_NAV_HEADERS = {
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,*/*;q=0.8"
+    ),
+    "Upgrade-Insecure-Requests": "1",
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/128.0.0.0 Safari/537.36"
+    ),
+}
+
+
+def _requests_parent_request(session: Smartschool) -> Any | None:
+    """Return ``requests.Session.request`` if ``session`` is a real Session."""
+    for cls in type(session).__mro__:
+        if cls.__name__ == "Session" and getattr(cls, "__module__", "").startswith(
+            "requests"
+        ):
+            request = getattr(cls, "request", None)
+            if callable(request):
+                return request
+    return None
+
+
+def _raw_session_request(
+    session: Smartschool, method: str, url: str, **kwargs: Any
+) -> Any | None:
+    """HTTP without Smartschool's login-form POST interceptor."""
+    parent_request = _requests_parent_request(session)
+    if parent_request is None:
+        return None
+    response = parent_request(session, method, url, **kwargs)
+    cookies = getattr(session, "cookies", None)
+    save = getattr(cookies, "save", None)
+    if callable(save):
+        try:
+            save(ignore_discard=True)
+        except Exception:
+            pass
+    return response
+
+
+def _foreign_hop_get(session: Smartschool, url: str, origin_host: str) -> Any:
+    """GET another school's hop the way the browser does, without posting login."""
+    headers = dict(_BROWSER_NAV_HEADERS)
+    if origin_host:
+        headers["Referer"] = f"https://{origin_host}/"
+    raw = _raw_session_request(
+        session, "GET", url, allow_redirects=False, headers=headers
+    )
+    if raw is not None:
+        return raw
+    return session.get(url, allow_redirects=False)
+
+
+def _refuse_password_login(*_args: Any, **_kwargs: Any) -> Any:
+    raise RuntimeError("refusing foreign password login")
+
+
+def _refuse_foreign_2fa(*_args: Any, **_kwargs: Any) -> Any:
+    raise RuntimeError("refusing foreign 2fa")
+
+
+@contextmanager
+def _without_password_or_2fa(session: Smartschool):
+    """Let account-verification run; block /login POST and TOTP."""
+    original_login = getattr(session, "_do_login", None)
+    original_2fa = getattr(session, "_complete_verification_2fa", None)
+    session._do_login = _refuse_password_login  # type: ignore[method-assign]
+    session._complete_verification_2fa = _refuse_foreign_2fa  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        if original_login is not None:
+            session._do_login = original_login  # type: ignore[method-assign]
+        if original_2fa is not None:
+            session._complete_verification_2fa = original_2fa  # type: ignore[method-assign]
+
+
+def _retarget_session_host(session: Smartschool, url: str) -> str | None:
+    """Point the session at another Smartschool host after a child-chain hop."""
+    new_host = urlparse(url).netloc
+    if not new_host:
+        return None
+    try:
+        current_host = urlparse(session.create_url("/")).netloc
+    except Exception:
+        current_host = ""
+    if not current_host or new_host == current_host:
+        return None
+    creds = getattr(session, "creds", None)
+    if creds is None or not hasattr(creds, "main_url"):
+        return new_host
+    object.__setattr__(creds, "main_url", new_host)
+    session.__dict__.pop("_url", None)
+    session.__dict__.pop("platform_id", None)
+    return new_host
+
+
+def _follow_switched_host(session: Smartschool, response: Any) -> str | None:
+    """If Mijn kinderen jumped to another school host, retarget the session."""
+    return _retarget_session_host(session, getattr(response, "url", "") or "")
+
+
+def _redirect_location(response: Any) -> str | None:
+    status = getattr(response, "status_code", None)
+    if status not in _REDIRECT_STATUSES:
+        return None
+    headers = getattr(response, "headers", None) or {}
+    location = headers.get("Location") or headers.get("location")
+    if not isinstance(location, str) or not location.strip():
+        return None
+    current = str(getattr(response, "url", "") or "")
+    return urljoin(current, location.strip())
+
+
+def _follow_child_switch_redirects(
+    session: Smartschool, start_path: str
+) -> tuple[Any, str | None, str | None]:
+    """Follow gotourl hops without replaying the original host after OTP/auth.
+
+    Cross-school children 302 to ``https://other.smartschool.be/otp/...``. The
+    smartschool session would then finish De Ring login and replay the original
+    De Pass gotourl, dropping the new cookies. Hop-by-hop avoids that replay.
+
+    Never GET another school's ``/login`` through ``session.get``:
+    ``Smartschool.request`` POSTs this session's username/password on any
+    login form. Foreign hops (``/otp/...``, then relative ``/Studentcard``)
+    use a raw GET with browser navigation headers. Foreign
+    ``account-verification`` is allowed with password login and TOTP disabled.
+    """
+    origin_host = urlparse(session.create_url("/")).netloc
+    url: str = start_path
+    switched_host: str | None = None
+    response: Any = None
+    for _ in range(12):
+        if _is_foreign_login(url, origin_host):
+            return response, switched_host, url
+        if _is_foreign_host(url, origin_host) and _url_is_auth(url):
+            switched_host = _retarget_session_host(session, url) or switched_host
+            try:
+                with _without_password_or_2fa(session):
+                    response = session.get(url, allow_redirects=True)
+            except Exception:
+                return response, switched_host, url
+            switched_host = (
+                _retarget_session_host(session, getattr(response, "url", "") or url)
+                or switched_host
+            )
+            landing = str(getattr(response, "url", "") or url)
+            blocked = landing if _url_is_auth(landing) else None
+            return response, switched_host, blocked
+        if _is_foreign_host(url, origin_host):
+            response = _foreign_hop_get(session, url, origin_host)
+        else:
+            response = session.get(url, allow_redirects=False)
+        switched_host = (
+            _retarget_session_host(session, getattr(response, "url", "") or "")
+            or switched_host
+        )
+        location = _redirect_location(response)
+        if location:
+            if _is_foreign_login(location, origin_host):
+                switched_host = (
+                    _retarget_session_host(session, location) or switched_host
+                )
+                return response, switched_host, location
+            switched_host = _retarget_session_host(session, location) or switched_host
+            url = location
+            continue
+        current_url = str(getattr(response, "url", "") or url)
+        if _url_is_login(current_url):
+            blocked = (
+                current_url if _is_foreign_login(current_url, origin_host) else None
+            )
+            return response, switched_host, blocked
+        if _url_is_auth(current_url) and not _is_foreign_host(current_url, origin_host):
+            switched_host = (
+                _retarget_session_host(session, current_url) or switched_host
+            )
+            response = session.get(current_url, allow_redirects=True)
+            switched_host = (
+                _retarget_session_host(
+                    session, getattr(response, "url", "") or current_url
+                )
+                or switched_host
+            )
+        break
+    return response, switched_host, None
 
 
 @mcp.tool()
@@ -720,6 +1194,142 @@ def get_student_support_links() -> list[dict[str, Any]]:
         return [{"error": f"Failed to retrieve support links: {e!s}"}]
 
 
+@mcp.tool()
+def get_children() -> dict[str, Any]:
+    """
+    List children linked on Mijn kinderen for this parent/co-account.
+
+    Same portal call as the website: POST /Studentcard/Student/getStudents
+    with ``X-Requested-With: XMLHttpRequest`` (without that header the portal
+    can return HTTP 500 HTML). The current child may have ``accountID`` 0;
+    switch ids are then taken from the Mijn kinderen topnav
+    (``/Studentcard/Chain/gotourl/accountID/{id}``).
+    Use ``account_id`` with switch_child to change whose Planner, results,
+    and messages the other tools return. One login does not merge every
+    child automatically — the session stays on the currently selected child.
+
+    Returns:
+        Dictionary with ``children``, ``current`` (the active session user),
+        and ``total``.
+    """
+    try:
+        session = _session()
+        session.ensure_authenticated()
+        payload: Any = []
+        try:
+            payload = session.json(
+                "/Studentcard/Student/getStudents",
+                method="post",
+                headers=_STUDENTCARD_XHR_HEADERS,
+            )
+        except Exception:
+            payload = []
+
+        children = [_person_dict(raw) for raw in _as_child_records(payload)]
+        try:
+            html = getattr(session.get("/Studentcard"), "text", "") or ""
+            children = _merge_topnav_children(children, _children_from_topnav(html))
+        except Exception:
+            pass
+
+        current = _current_user_dict(session)
+        children = [_mark_current_child(child, current) for child in children]
+        return {
+            "children": children,
+            "current": current,
+            "total": len(children),
+        }
+    except Exception as e:
+        return {"error": f"Failed to retrieve children: {e!s}"}
+
+
+@mcp.tool()
+def switch_child(account_id: str) -> dict[str, Any]:
+    """
+    Switch the session to another linked child (Mijn kinderen).
+
+    Same portal call as the website: GET
+    /Studentcard/Chain/gotourl/accountID/{accountId}. A child on another
+    platform (e.g. De Ring) 302s to a one-time ``/otp/...`` URL; that hop is
+    followed without replaying the original host. After a successful switch,
+    get_schedule / get_planned_elements / get_results follow the newly
+    selected child. Get account_id from get_children.
+
+    Args:
+        account_id: Linked-account id from get_children (not the Planner
+            user id). Digits, letters, underscore, and hyphen only.
+
+    Returns:
+        Dictionary with the new ``current`` user, optional ``switched_host``
+        when the chain landed on another school platform, and ``ok``.
+    """
+    try:
+        safe_id = _safe_account_id(account_id)
+        if safe_id is None:
+            return {"error": "Invalid account_id"}
+
+        session = _session()
+        session.ensure_authenticated()
+        origin_host = urlparse(session.create_url("/")).netloc
+        path = f"/Studentcard/Chain/gotourl/accountID/{safe_id}"
+        response, switched_host, blocked_login = _follow_child_switch_redirects(
+            session, path
+        )
+        if response is None and not blocked_login:
+            return {"error": "Child switch failed: empty response"}
+        status = getattr(response, "status_code", 0) if response is not None else 0
+        if (
+            response is not None
+            and not blocked_login
+            and status not in _REDIRECT_STATUSES
+            and not getattr(response, "ok", True)
+        ):
+            return {"error": f"Child switch failed: HTTP {status}"}
+
+        if response is not None:
+            switched_host = _follow_switched_host(session, response) or switched_host
+        landing = blocked_login or str(getattr(response, "url", "") or "")
+        if blocked_login or _url_is_login(landing):
+            if origin_host:
+                _retarget_session_host(session, f"https://{origin_host}/")
+            auth_kind = (
+                "login page"
+                if _url_is_login(blocked_login or landing)
+                else "authentication page"
+            )
+            failed: dict[str, Any] = {
+                "ok": False,
+                "error": (
+                    f"Child switch landed on the other school's {auth_kind}; "
+                    "not submitting this account's password there"
+                ),
+                "account_id": safe_id,
+            }
+            if switched_host:
+                failed["switched_host"] = switched_host
+            return failed
+
+        user = _authenticated_user_from_response(session, response)
+        if user is None and not _url_is_auth(landing):
+            user = _authenticated_user_from_response(session, session.get("/"))
+
+        current = (
+            _person_dict(user)
+            if isinstance(user, dict)
+            else _current_user_dict(session)
+        )
+        result: dict[str, Any] = {
+            "ok": True,
+            "account_id": safe_id,
+            "current": current,
+        }
+        if switched_host:
+            result["switched_host"] = switched_host
+        return result
+    except Exception as e:
+        return {"error": f"Failed to switch child: {e!s}"}
+
+
 def _attachment_file_id(att: object) -> object | None:
     """Return an Attachment's file id.
 
@@ -852,14 +1462,19 @@ def _parse_html(response: Any) -> Any:
     ``smartschool.bs4_html`` is not exported by every release, so fall back to
     BeautifulSoup directly rather than failing at import time.
     """
+    markup: Any
+    if isinstance(response, (str, bytes)):
+        markup = response
+    else:
+        markup = getattr(response, "text", response)
     try:
         from smartschool import bs4_html
 
-        return bs4_html(response)
+        return bs4_html(markup)
     except Exception:
         from bs4 import BeautifulSoup
 
-        return BeautifulSoup(response.text, "html.parser")
+        return BeautifulSoup(markup, "html.parser")
 
 
 def _absolutise(session: Smartschool, url: str) -> str:

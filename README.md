@@ -23,6 +23,8 @@ Connect Claude (and other MCP clients) to your Smartschool account — ask about
 | `get_reports` | Available report cards |
 | `get_planned_elements` | Planner calendar for a date range (optional `types` / `includes`) |
 | `get_student_support_links` | School support resources and links |
+| `get_children` | Linked children on Mijn kinderen (parent/co-account) |
+| `switch_child` | Switch the session to another linked child |
 | `get_attachments` | List attachments for a specific message |
 | `download_attachment` | Download a specific attachment by message and file ID |
 | `get_homepage_blocks` | "In de kijker" blocks pinned to the homepage (e.g. monthly menu, calendar) |
