@@ -454,6 +454,18 @@ def _url_is_auth(url: str) -> bool:
     return bool(_AUTH_PATH_SEGMENTS & set(urlparse(url).path.split("/")))
 
 
+def _url_is_login(url: str) -> bool:
+    return "login" in set(urlparse(url).path.split("/"))
+
+
+def _is_foreign_login(url: str, origin_host: str) -> bool:
+    """True when ``url`` is a login page on a host other than the origin session."""
+    if not _url_is_login(url):
+        return False
+    host = urlparse(url).netloc
+    return bool(host and origin_host and host != origin_host)
+
+
 def _retarget_session_host(session: Smartschool, url: str) -> str | None:
     """Point the session at another Smartschool host after a child-chain hop."""
     new_host = urlparse(url).netloc
@@ -493,19 +505,24 @@ def _redirect_location(response: Any) -> str | None:
 
 def _follow_child_switch_redirects(
     session: Smartschool, start_path: str
-) -> tuple[Any, str | None]:
+) -> tuple[Any, str | None, str | None]:
     """Follow gotourl hops without replaying the original host after OTP/auth.
 
     Cross-school children 302 to ``https://other.smartschool.be/otp/...``. The
     smartschool session would then finish De Ring login and replay the original
     De Pass gotourl, dropping the new cookies. Hop-by-hop avoids that replay.
-    Never POST this session's username/password on another school's ``/login``
-    page: that is a different account and can lock the child out.
+
+    Never GET another school's ``/login``: ``Smartschool.request`` POSTs this
+    session's username/password on any login form, and that can lock the child
+    out. Abort on the redirect *to* ``/login`` instead of fetching the page.
     """
+    origin_host = urlparse(session.create_url("/")).netloc
     url: str = start_path
     switched_host: str | None = None
     response: Any = None
     for _ in range(12):
+        if _is_foreign_login(url, origin_host):
+            return response, switched_host, url
         response = session.get(url, allow_redirects=False)
         switched_host = (
             _retarget_session_host(session, getattr(response, "url", "") or "")
@@ -513,13 +530,20 @@ def _follow_child_switch_redirects(
         )
         location = _redirect_location(response)
         if location:
+            if _is_foreign_login(location, origin_host):
+                switched_host = (
+                    _retarget_session_host(session, location) or switched_host
+                )
+                return response, switched_host, location
             switched_host = _retarget_session_host(session, location) or switched_host
             url = location
             continue
         current_url = str(getattr(response, "url", "") or url)
-        path_parts = set(urlparse(current_url).path.split("/"))
-        if "login" in path_parts:
-            break
+        if _url_is_login(current_url):
+            blocked = (
+                current_url if _is_foreign_login(current_url, origin_host) else None
+            )
+            return response, switched_host, blocked
         if _url_is_auth(current_url):
             switched_host = (
                 _retarget_session_host(session, current_url) or switched_host
@@ -532,7 +556,7 @@ def _follow_child_switch_redirects(
                 or switched_host
             )
         break
-    return response, switched_host
+    return response, switched_host, None
 
 
 @mcp.tool()
@@ -1145,16 +1169,24 @@ def switch_child(account_id: str) -> dict[str, Any]:
         session.ensure_authenticated()
         origin_host = urlparse(session.create_url("/")).netloc
         path = f"/Studentcard/Chain/gotourl/accountID/{safe_id}"
-        response, switched_host = _follow_child_switch_redirects(session, path)
-        if response is None:
+        response, switched_host, blocked_login = _follow_child_switch_redirects(
+            session, path
+        )
+        if response is None and not blocked_login:
             return {"error": "Child switch failed: empty response"}
-        status = getattr(response, "status_code", 0)
-        if status not in _REDIRECT_STATUSES and not getattr(response, "ok", True):
+        status = getattr(response, "status_code", 0) if response is not None else 0
+        if (
+            response is not None
+            and not blocked_login
+            and status not in _REDIRECT_STATUSES
+            and not getattr(response, "ok", True)
+        ):
             return {"error": f"Child switch failed: HTTP {status}"}
 
-        switched_host = _follow_switched_host(session, response) or switched_host
-        landing = str(getattr(response, "url", "") or "")
-        if "login" in set(urlparse(landing).path.split("/")):
+        if response is not None:
+            switched_host = _follow_switched_host(session, response) or switched_host
+        landing = blocked_login or str(getattr(response, "url", "") or "")
+        if blocked_login or _url_is_login(landing):
             if origin_host:
                 _retarget_session_host(session, f"https://{origin_host}/")
             failed: dict[str, Any] = {

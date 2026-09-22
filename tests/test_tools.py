@@ -416,21 +416,21 @@ def test_switch_child_does_not_submit_password_on_foreign_login(
         headers={"Location": "https://other.smartschool.be/otp/token"},
         history=[],
     )
-    login = MagicMock(
-        status_code=200,
-        ok=True,
-        text="<html><body>login</body></html>",
-        url="https://other.smartschool.be/login",
-        headers={},
+    otp = MagicMock(
+        status_code=302,
+        ok=False,
+        text="",
+        url="https://other.smartschool.be/otp/token",
+        headers={"Location": "https://other.smartschool.be/login"},
         history=[],
     )
 
     def fake_get(url: str, **kwargs: object) -> MagicMock:
         if "gotourl" in str(url):
             return gotourl
-        if str(url).rstrip("/").endswith("/login") or "otp" in str(url):
-            return login
-        raise AssertionError(f"unexpected GET {url} {kwargs}")
+        if "otp" in str(url):
+            return otp
+        raise AssertionError(f"must not GET foreign login {url} {kwargs}")
 
     mock_session.get.side_effect = fake_get
     mock_session.create_url.side_effect = lambda path: (
@@ -446,6 +446,8 @@ def test_switch_child_does_not_submit_password_on_foreign_login(
     assert result["ok"] is False
     assert "login page" in result["error"]
     assert mock_session.creds.main_url == "school.smartschool.be"
+    fetched = [str(call.args[0]) for call in mock_session.get.call_args_list]
+    assert not any(srv._url_is_login(url) for url in fetched)
     assert not any(
         call.kwargs.get("allow_redirects") is True
         for call in mock_session.get.call_args_list

@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `switch_child` does not POST the parent password when a cross-school hop lands on another platform's `/login` (that locked a linked child account during live testing)
+- `switch_child` does not GET another school's `/login` (the library would POST this session's password there and can lock the linked account); it aborts on the redirect to that page
 - `download_attachment` calls `session.get()` directly instead of the upstream library's `Attachment.download()`, which incorrectly base64-decodes a raw binary response (upstream bug)
 - Homepage HTML parsing falls back to BeautifulSoup when `smartschool.bs4_html` is present but cannot parse the response
 
