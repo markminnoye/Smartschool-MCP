@@ -458,12 +458,100 @@ def _url_is_login(url: str) -> bool:
     return "login" in set(urlparse(url).path.split("/"))
 
 
-def _is_foreign_login(url: str, origin_host: str) -> bool:
-    """True when ``url`` is a login page on a host other than the origin session."""
-    if not _url_is_login(url):
-        return False
+def _is_foreign_host(url: str, origin_host: str) -> bool:
     host = urlparse(url).netloc
     return bool(host and origin_host and host != origin_host)
+
+
+def _is_foreign_login(url: str, origin_host: str) -> bool:
+    """True when ``url`` is a login page on a host other than the origin session."""
+    return _url_is_login(url) and _is_foreign_host(url, origin_host)
+
+
+def _requests_parent_request(session: Smartschool) -> Any | None:
+    """Return ``requests.Session.request`` if ``session`` is a real Session."""
+    for cls in type(session).__mro__:
+        if cls.__name__ == "Session" and getattr(cls, "__module__", "").startswith(
+            "requests"
+        ):
+            request = getattr(cls, "request", None)
+            if callable(request):
+                return request
+    return None
+
+
+def _raw_session_request(
+    session: Smartschool, method: str, url: str, **kwargs: Any
+) -> Any:
+    """HTTP without Smartschool's login-form POST interceptor."""
+    parent_request = _requests_parent_request(session)
+    if parent_request is None:
+        raise RuntimeError("Cannot bypass login interceptor on this session")
+    response = parent_request(session, method, url, **kwargs)
+    cookies = getattr(session, "cookies", None)
+    save = getattr(cookies, "save", None)
+    if callable(save):
+        try:
+            save(ignore_discard=True)
+        except Exception:
+            pass
+    return response
+
+
+def _complete_foreign_device_auth(
+    session: Smartschool, url: str, origin_host: str
+) -> tuple[Any, str | None]:
+    """Finish the other school's device check; never POST username/password."""
+    from smartschool._common import fill_form
+
+    creds = getattr(session, "creds", None)
+    mfa = str(getattr(creds, "mfa", "") or "")
+    response: Any = None
+    next_url = url
+    for _ in range(8):
+        if _is_foreign_login(next_url, origin_host) or _url_is_login(next_url):
+            return response, next_url
+        response = _raw_session_request(session, "GET", next_url, allow_redirects=False)
+        location = _redirect_location(response)
+        if location:
+            next_url = location
+            continue
+        current = str(getattr(response, "url", "") or next_url)
+        if _url_is_login(current):
+            return response, current
+        path_parts = set(urlparse(current).path.split("/"))
+        if "account-verification" in path_parts:
+            if not mfa:
+                return response, current
+            try:
+                data = fill_form(
+                    response,
+                    'form[name="account_verification_form"]',
+                    {"security_question_answer": mfa},
+                )
+            except Exception:
+                return response, current
+            response = _raw_session_request(
+                session,
+                "POST",
+                current,
+                data=data,
+                allow_redirects=False,
+            )
+            location = _redirect_location(response)
+            if location:
+                next_url = location
+                continue
+            current = str(getattr(response, "url", "") or current)
+            if _url_is_login(current) or _url_is_auth(current):
+                return response, current
+            return response, None
+        if "2fa" in path_parts:
+            return response, current
+        if _url_is_auth(current):
+            return response, current
+        return response, None
+    return response, next_url
 
 
 def _retarget_session_host(session: Smartschool, url: str) -> str | None:
@@ -512,9 +600,10 @@ def _follow_child_switch_redirects(
     smartschool session would then finish De Ring login and replay the original
     De Pass gotourl, dropping the new cookies. Hop-by-hop avoids that replay.
 
-    Never GET another school's ``/login``: ``Smartschool.request`` POSTs this
-    session's username/password on any login form, and that can lock the child
-    out. Abort on the redirect *to* ``/login`` instead of fetching the page.
+    Never GET another school's ``/login`` through ``session.get``:
+    ``Smartschool.request`` POSTs this session's username/password on any
+    login form. Device verification on the other host uses a raw POST of the
+    MFA answer only.
     """
     origin_host = urlparse(session.create_url("/")).netloc
     url: str = start_path
@@ -523,6 +612,19 @@ def _follow_child_switch_redirects(
     for _ in range(12):
         if _is_foreign_login(url, origin_host):
             return response, switched_host, url
+        if _is_foreign_host(url, origin_host) and _url_is_auth(url):
+            switched_host = _retarget_session_host(session, url) or switched_host
+            try:
+                response, blocked = _complete_foreign_device_auth(
+                    session, url, origin_host
+                )
+            except Exception:
+                return response, switched_host, url
+            switched_host = (
+                _retarget_session_host(session, getattr(response, "url", "") or url)
+                or switched_host
+            )
+            return response, switched_host, blocked
         response = session.get(url, allow_redirects=False)
         switched_host = (
             _retarget_session_host(session, getattr(response, "url", "") or "")
@@ -544,7 +646,7 @@ def _follow_child_switch_redirects(
                 current_url if _is_foreign_login(current_url, origin_host) else None
             )
             return response, switched_host, blocked
-        if _url_is_auth(current_url):
+        if _url_is_auth(current_url) and not _is_foreign_host(current_url, origin_host):
             switched_host = (
                 _retarget_session_host(session, current_url) or switched_host
             )
@@ -1189,10 +1291,15 @@ def switch_child(account_id: str) -> dict[str, Any]:
         if blocked_login or _url_is_login(landing):
             if origin_host:
                 _retarget_session_host(session, f"https://{origin_host}/")
+            auth_kind = (
+                "login page"
+                if _url_is_login(blocked_login or landing)
+                else "authentication page"
+            )
             failed: dict[str, Any] = {
                 "ok": False,
                 "error": (
-                    "Child switch landed on the other school's login page; "
+                    f"Child switch landed on the other school's {auth_kind}; "
                     "not submitting this account's password there"
                 ),
                 "account_id": safe_id,
