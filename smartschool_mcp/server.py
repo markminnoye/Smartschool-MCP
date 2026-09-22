@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import threading
+from contextlib import contextmanager
 from datetime import date, timedelta
 from functools import lru_cache
 from typing import Any, TypedDict
@@ -468,90 +469,28 @@ def _is_foreign_login(url: str, origin_host: str) -> bool:
     return _url_is_login(url) and _is_foreign_host(url, origin_host)
 
 
-def _requests_parent_request(session: Smartschool) -> Any | None:
-    """Return ``requests.Session.request`` if ``session`` is a real Session."""
-    for cls in type(session).__mro__:
-        if cls.__name__ == "Session" and getattr(cls, "__module__", "").startswith(
-            "requests"
-        ):
-            request = getattr(cls, "request", None)
-            if callable(request):
-                return request
-    return None
+def _refuse_password_login(*_args: Any, **_kwargs: Any) -> Any:
+    raise RuntimeError("refusing foreign password login")
 
 
-def _raw_session_request(
-    session: Smartschool, method: str, url: str, **kwargs: Any
-) -> Any:
-    """HTTP without Smartschool's login-form POST interceptor."""
-    parent_request = _requests_parent_request(session)
-    if parent_request is None:
-        raise RuntimeError("Cannot bypass login interceptor on this session")
-    response = parent_request(session, method, url, **kwargs)
-    cookies = getattr(session, "cookies", None)
-    save = getattr(cookies, "save", None)
-    if callable(save):
-        try:
-            save(ignore_discard=True)
-        except Exception:
-            pass
-    return response
+def _refuse_foreign_2fa(*_args: Any, **_kwargs: Any) -> Any:
+    raise RuntimeError("refusing foreign 2fa")
 
 
-def _complete_foreign_device_auth(
-    session: Smartschool, url: str, origin_host: str
-) -> tuple[Any, str | None]:
-    """Finish the other school's device check; never POST username/password."""
-    from smartschool._common import fill_form
-
-    creds = getattr(session, "creds", None)
-    mfa = str(getattr(creds, "mfa", "") or "")
-    response: Any = None
-    next_url = url
-    for _ in range(8):
-        if _is_foreign_login(next_url, origin_host) or _url_is_login(next_url):
-            return response, next_url
-        response = _raw_session_request(session, "GET", next_url, allow_redirects=False)
-        location = _redirect_location(response)
-        if location:
-            next_url = location
-            continue
-        current = str(getattr(response, "url", "") or next_url)
-        if _url_is_login(current):
-            return response, current
-        path_parts = set(urlparse(current).path.split("/"))
-        if "account-verification" in path_parts:
-            if not mfa:
-                return response, current
-            try:
-                data = fill_form(
-                    response,
-                    'form[name="account_verification_form"]',
-                    {"security_question_answer": mfa},
-                )
-            except Exception:
-                return response, current
-            response = _raw_session_request(
-                session,
-                "POST",
-                current,
-                data=data,
-                allow_redirects=False,
-            )
-            location = _redirect_location(response)
-            if location:
-                next_url = location
-                continue
-            current = str(getattr(response, "url", "") or current)
-            if _url_is_login(current) or _url_is_auth(current):
-                return response, current
-            return response, None
-        if "2fa" in path_parts:
-            return response, current
-        if _url_is_auth(current):
-            return response, current
-        return response, None
-    return response, next_url
+@contextmanager
+def _without_password_or_2fa(session: Smartschool):
+    """Let account-verification run; block /login POST and TOTP."""
+    original_login = getattr(session, "_do_login", None)
+    original_2fa = getattr(session, "_complete_verification_2fa", None)
+    session._do_login = _refuse_password_login  # type: ignore[method-assign]
+    session._complete_verification_2fa = _refuse_foreign_2fa  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        if original_login is not None:
+            session._do_login = original_login  # type: ignore[method-assign]
+        if original_2fa is not None:
+            session._complete_verification_2fa = original_2fa  # type: ignore[method-assign]
 
 
 def _retarget_session_host(session: Smartschool, url: str) -> str | None:
@@ -602,8 +541,8 @@ def _follow_child_switch_redirects(
 
     Never GET another school's ``/login`` through ``session.get``:
     ``Smartschool.request`` POSTs this session's username/password on any
-    login form. Device verification on the other host uses a raw POST of the
-    MFA answer only.
+    login form. Foreign ``account-verification`` is allowed with password
+    login and TOTP disabled.
     """
     origin_host = urlparse(session.create_url("/")).netloc
     url: str = start_path
@@ -615,15 +554,16 @@ def _follow_child_switch_redirects(
         if _is_foreign_host(url, origin_host) and _url_is_auth(url):
             switched_host = _retarget_session_host(session, url) or switched_host
             try:
-                response, blocked = _complete_foreign_device_auth(
-                    session, url, origin_host
-                )
+                with _without_password_or_2fa(session):
+                    response = session.get(url, allow_redirects=True)
             except Exception:
                 return response, switched_host, url
             switched_host = (
                 _retarget_session_host(session, getattr(response, "url", "") or url)
                 or switched_host
             )
+            landing = str(getattr(response, "url", "") or url)
+            blocked = landing if _url_is_auth(landing) else None
             return response, switched_host, blocked
         response = session.get(url, allow_redirects=False)
         switched_host = (

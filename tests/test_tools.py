@@ -454,7 +454,7 @@ def test_switch_child_does_not_submit_password_on_foreign_login(
     )
 
 
-def test_switch_child_does_not_library_get_foreign_verification(
+def test_switch_child_blocks_when_foreign_verification_stays_on_auth(
     mock_session: MagicMock,
 ) -> None:
     gotourl = MagicMock(
@@ -473,13 +473,23 @@ def test_switch_child_does_not_library_get_foreign_verification(
         headers={"Location": "https://other.smartschool.be/account-verification"},
         history=[],
     )
+    verification = MagicMock(
+        status_code=200,
+        ok=True,
+        text="<html><body>verify</body></html>",
+        url="https://other.smartschool.be/account-verification",
+        headers={},
+        history=[],
+    )
 
     def fake_get(url: str, **kwargs: object) -> MagicMock:
         if "gotourl" in str(url):
             return gotourl
         if "otp" in str(url):
             return otp
-        raise AssertionError(f"must not library-GET foreign auth {url} {kwargs}")
+        if "account-verification" in str(url):
+            return verification
+        raise AssertionError(f"must not GET {url} {kwargs}")
 
     mock_session.get.side_effect = fake_get
     mock_session.create_url.side_effect = lambda path: (
@@ -495,9 +505,14 @@ def test_switch_child_does_not_library_get_foreign_verification(
     assert result["ok"] is False
     assert "password" in result["error"]
     fetched = [str(call.args[0]) for call in mock_session.get.call_args_list]
-    assert not any("account-verification" in url for url in fetched)
-    assert not any("login" in url for url in fetched)
+    assert any("account-verification" in url for url in fetched)
+    assert not any(srv._url_is_login(url) for url in fetched)
     assert mock_session.creds.main_url == "school.smartschool.be"
+    assert any(
+        call.kwargs.get("allow_redirects") is True
+        and "account-verification" in str(call.args[0])
+        for call in mock_session.get.call_args_list
+    )
 
 
 # ── Happy-path: verify tool processes library objects correctly ───────────────
