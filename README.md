@@ -10,6 +10,10 @@
 
 Connect Claude (and other MCP clients) to your Smartschool account — ask about grades, assignments, messages, and your schedule in plain language.
 
+## Claude Code plugin
+
+[`claude-plugin/`](claude-plugin/) is a downloadable Claude Code plugin (skill + local scripts) for one account: agenda, berichten, and cijfers. It calls the same pinned `smartschool` library as this repo. Install with `claude --plugin-dir ./claude-plugin` after `uv sync`; steps and the example env file are in [`claude-plugin/README.md`](claude-plugin/README.md). The MCP server in this repository stays as-is. A hosted web demo is out of scope.
+
 ## Tools
 
 | Tool | What it does |

@@ -78,13 +78,22 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["smartschool_mcp"]
+known-first-party = [
+    "_common",
+    "courses",
+    "login",
+    "messages",
+    "results",
+    "schedule",
+    "smartschool_mcp",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]  # assert is fine in tests
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["claude-plugin/scripts"]
 addopts = "-v --tb=short --strict-markers"
 markers = [
     "integration: marks tests as requiring real Smartschool credentials (deselect with -m 'not integration')",
