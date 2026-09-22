@@ -469,6 +469,63 @@ def _is_foreign_login(url: str, origin_host: str) -> bool:
     return _url_is_login(url) and _is_foreign_host(url, origin_host)
 
 
+_BROWSER_NAV_HEADERS = {
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,*/*;q=0.8"
+    ),
+    "Upgrade-Insecure-Requests": "1",
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/128.0.0.0 Safari/537.36"
+    ),
+}
+
+
+def _requests_parent_request(session: Smartschool) -> Any | None:
+    """Return ``requests.Session.request`` if ``session`` is a real Session."""
+    for cls in type(session).__mro__:
+        if cls.__name__ == "Session" and getattr(cls, "__module__", "").startswith(
+            "requests"
+        ):
+            request = getattr(cls, "request", None)
+            if callable(request):
+                return request
+    return None
+
+
+def _raw_session_request(
+    session: Smartschool, method: str, url: str, **kwargs: Any
+) -> Any | None:
+    """HTTP without Smartschool's login-form POST interceptor."""
+    parent_request = _requests_parent_request(session)
+    if parent_request is None:
+        return None
+    response = parent_request(session, method, url, **kwargs)
+    cookies = getattr(session, "cookies", None)
+    save = getattr(cookies, "save", None)
+    if callable(save):
+        try:
+            save(ignore_discard=True)
+        except Exception:
+            pass
+    return response
+
+
+def _foreign_hop_get(session: Smartschool, url: str, origin_host: str) -> Any:
+    """GET another school's hop the way the browser does, without posting login."""
+    headers = dict(_BROWSER_NAV_HEADERS)
+    if origin_host:
+        headers["Referer"] = f"https://{origin_host}/"
+    raw = _raw_session_request(
+        session, "GET", url, allow_redirects=False, headers=headers
+    )
+    if raw is not None:
+        return raw
+    return session.get(url, allow_redirects=False)
+
+
 def _refuse_password_login(*_args: Any, **_kwargs: Any) -> Any:
     raise RuntimeError("refusing foreign password login")
 
@@ -541,8 +598,9 @@ def _follow_child_switch_redirects(
 
     Never GET another school's ``/login`` through ``session.get``:
     ``Smartschool.request`` POSTs this session's username/password on any
-    login form. Foreign ``account-verification`` is allowed with password
-    login and TOTP disabled.
+    login form. Foreign hops (``/otp/...``, then relative ``/Studentcard``)
+    use a raw GET with browser navigation headers. Foreign
+    ``account-verification`` is allowed with password login and TOTP disabled.
     """
     origin_host = urlparse(session.create_url("/")).netloc
     url: str = start_path
@@ -565,7 +623,10 @@ def _follow_child_switch_redirects(
             landing = str(getattr(response, "url", "") or url)
             blocked = landing if _url_is_auth(landing) else None
             return response, switched_host, blocked
-        response = session.get(url, allow_redirects=False)
+        if _is_foreign_host(url, origin_host):
+            response = _foreign_hop_get(session, url, origin_host)
+        else:
+            response = session.get(url, allow_redirects=False)
         switched_host = (
             _retarget_session_host(session, getattr(response, "url", "") or "")
             or switched_host

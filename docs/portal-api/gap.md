@@ -117,7 +117,7 @@ These are still called by the library. They did **not** appear in this live HAR.
 | `GET /intradesk/api/v1/{platformId}/files/{fileId}/download` | `IntradeskFile` | Unknown — listing/favourite were opened; download was not |
 | `GET /Documents/Index/Index/courseID/{courseId}/ssID/{platformId}` | `FolderItem` | **Seen live** on De Ring (plus `parentID/{folderId}` subfolder) |
 | Messages compose / searchUsers / archive / attachment download / mark unread / label / trash | `MessageComposerForm` and related | Unknown — inbox list/detail were opened; compose was not |
-| `POST /login` / `POST /account-verification` / `2fa/api/v1/…` | `Smartschool` | Session already existed; De Ring showed `GET /account-verification` only |
+| `POST /login` / `POST /account-verification` / `2fa/api/v1/…` | `Smartschool` | Trusted-browser switch (2026-09-22 HAR): OTP 302 to relative `/Studentcard`, no login POST. New-device sessions may still see `GET /account-verification`. |
 
 ## MCP column (info only)
 

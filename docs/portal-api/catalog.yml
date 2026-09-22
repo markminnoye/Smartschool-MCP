@@ -6,7 +6,8 @@
 #   parent/co-account on depass.smartschool.be and dering.smartschool.be
 #   (file overwritten later the same day: De Ring Intradesk / Zoeken / Vakken
 #   course folders, then again with Meldingen /Profile/Notify; keys merged below)
-# - Installed svaningelgem/smartschool locally from vendor/smartschool
+# - Chrome HAR docs/portal-api/raw/switch-child-depass-to-dering.har (gitignored), 2026-09-22
+#   Mijn kinderen switch: gotourl → /otp/{token} → relative /Studentcard
 #   (planner-calendar-1to1: omit types by default, PinnedPlannedElements)
 #
 # observed_on: "depass.smartschool.be parent/co-account"
@@ -974,8 +975,11 @@ endpoints:
     notes: >
       HTML child-switch redirect. Path id is an account id from getStudents;
       do not commit it. Cross-school children 302 to ``/otp/{token}`` on the
-      other host; follow that hop and retarget ``main_url``. After the
-      redirect, planner/results follow the new child.
+      other host. A trusted browser then 302s from OTP with relative
+      ``Location: /Studentcard`` (no ``/login``, no ``/account-verification``).
+      Follow hop-by-hop, retarget ``main_url``, and do not POST this session's
+      password if OTP instead lands on ``/login``. After the redirect,
+      planner/results follow the new child.
 
 
   # --- LVS ---

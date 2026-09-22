@@ -405,6 +405,70 @@ def test_switch_child_follows_cross_host_otp_redirect(
     )
 
 
+def test_switch_child_follows_relative_studentcard_after_otp(
+    mock_session: MagicMock,
+) -> None:
+    landing_html = """
+    <html><script>
+    $.extend(true, SMSC, { vars : {"authenticatedUser": {
+      "id": "33_2", "firstName": "Sufyan", "lastName": "Child"
+    }}});
+    </script></html>
+    """
+    gotourl = MagicMock(
+        status_code=302,
+        ok=False,
+        text="",
+        url="https://school.smartschool.be/Studentcard/Chain/gotourl/accountID/222",
+        headers={"Location": "https://other.smartschool.be/otp/token"},
+        history=[],
+    )
+    otp = MagicMock(
+        status_code=302,
+        ok=False,
+        text="",
+        url="https://other.smartschool.be/otp/token",
+        headers={"Location": "/Studentcard"},
+        history=[],
+    )
+    landing = MagicMock(
+        status_code=200,
+        ok=True,
+        text=landing_html,
+        url="https://other.smartschool.be/Studentcard",
+        headers={},
+        history=[],
+    )
+
+    def fake_get(url: str, **kwargs: object) -> MagicMock:
+        if "gotourl" in str(url):
+            return gotourl
+        if "otp" in str(url):
+            return otp
+        if str(url).rstrip("/").endswith("/Studentcard"):
+            return landing
+        raise AssertionError(f"unexpected GET {url} {kwargs}")
+
+    mock_session.get.side_effect = fake_get
+    mock_session.create_url.side_effect = lambda path: (
+        f"https://{mock_session.creds.main_url}{path}"
+        if str(path).startswith("/")
+        else str(path)
+    )
+    mock_session.creds = MagicMock()
+    mock_session.creds.main_url = "school.smartschool.be"
+
+    result = srv.switch_child("222")
+
+    assert result["ok"] is True
+    assert result["switched_host"] == "other.smartschool.be"
+    assert result["current"]["name"] == "Sufyan Child"
+    mock_session.get.assert_any_call(
+        "https://other.smartschool.be/Studentcard",
+        allow_redirects=False,
+    )
+
+
 def test_switch_child_does_not_submit_password_on_foreign_login(
     mock_session: MagicMock,
 ) -> None:
