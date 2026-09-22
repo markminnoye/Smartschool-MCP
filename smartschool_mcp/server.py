@@ -499,6 +499,8 @@ def _follow_child_switch_redirects(
     Cross-school children 302 to ``https://other.smartschool.be/otp/...``. The
     smartschool session would then finish De Ring login and replay the original
     De Pass gotourl, dropping the new cookies. Hop-by-hop avoids that replay.
+    Never POST this session's username/password on another school's ``/login``
+    page: that is a different account and can lock the child out.
     """
     url: str = start_path
     switched_host: str | None = None
@@ -515,6 +517,9 @@ def _follow_child_switch_redirects(
             url = location
             continue
         current_url = str(getattr(response, "url", "") or url)
+        path_parts = set(urlparse(current_url).path.split("/"))
+        if "login" in path_parts:
+            break
         if _url_is_auth(current_url):
             switched_host = (
                 _retarget_session_host(session, current_url) or switched_host
@@ -1138,6 +1143,7 @@ def switch_child(account_id: str) -> dict[str, Any]:
 
         session = _session()
         session.ensure_authenticated()
+        origin_host = urlparse(session.create_url("/")).netloc
         path = f"/Studentcard/Chain/gotourl/accountID/{safe_id}"
         response, switched_host = _follow_child_switch_redirects(session, path)
         if response is None:
@@ -1147,8 +1153,24 @@ def switch_child(account_id: str) -> dict[str, Any]:
             return {"error": f"Child switch failed: HTTP {status}"}
 
         switched_host = _follow_switched_host(session, response) or switched_host
+        landing = str(getattr(response, "url", "") or "")
+        if "login" in set(urlparse(landing).path.split("/")):
+            if origin_host:
+                _retarget_session_host(session, f"https://{origin_host}/")
+            failed: dict[str, Any] = {
+                "ok": False,
+                "error": (
+                    "Child switch landed on the other school's login page; "
+                    "not submitting this account's password there"
+                ),
+                "account_id": safe_id,
+            }
+            if switched_host:
+                failed["switched_host"] = switched_host
+            return failed
+
         user = _authenticated_user_from_response(session, response)
-        if user is None:
+        if user is None and not _url_is_auth(landing):
             user = _authenticated_user_from_response(session, session.get("/"))
 
         current = (

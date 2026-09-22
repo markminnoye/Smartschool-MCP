@@ -405,6 +405,53 @@ def test_switch_child_follows_cross_host_otp_redirect(
     )
 
 
+def test_switch_child_does_not_submit_password_on_foreign_login(
+    mock_session: MagicMock,
+) -> None:
+    gotourl = MagicMock(
+        status_code=302,
+        ok=False,
+        text="",
+        url="https://school.smartschool.be/Studentcard/Chain/gotourl/accountID/222",
+        headers={"Location": "https://other.smartschool.be/otp/token"},
+        history=[],
+    )
+    login = MagicMock(
+        status_code=200,
+        ok=True,
+        text="<html><body>login</body></html>",
+        url="https://other.smartschool.be/login",
+        headers={},
+        history=[],
+    )
+
+    def fake_get(url: str, **kwargs: object) -> MagicMock:
+        if "gotourl" in str(url):
+            return gotourl
+        if str(url).rstrip("/").endswith("/login") or "otp" in str(url):
+            return login
+        raise AssertionError(f"unexpected GET {url} {kwargs}")
+
+    mock_session.get.side_effect = fake_get
+    mock_session.create_url.side_effect = lambda path: (
+        f"https://{mock_session.creds.main_url}{path}"
+        if str(path).startswith("/")
+        else str(path)
+    )
+    mock_session.creds = MagicMock()
+    mock_session.creds.main_url = "school.smartschool.be"
+
+    result = srv.switch_child("222")
+
+    assert result["ok"] is False
+    assert "login page" in result["error"]
+    assert mock_session.creds.main_url == "school.smartschool.be"
+    assert not any(
+        call.kwargs.get("allow_redirects") is True
+        for call in mock_session.get.call_args_list
+    )
+
+
 # ── Happy-path: verify tool processes library objects correctly ───────────────
 
 
