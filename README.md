@@ -63,6 +63,8 @@ Config file locations: `%APPDATA%\Claude\claude_desktop_config.json` (Windows) Â
 
 The server supports **Streamable HTTP** transport for use as a remote integration on claude.ai.
 
+Sonic Rocket Fly.io demo (`https://smartschool-mcp.sonicrocket.app/mcp`): [docs/deploy-sonicrocket.md](docs/deploy-sonicrocket.md).
+
 ### Comparing modes
 
 | Mode | Best for | Setup | Credentials | Auth method |
