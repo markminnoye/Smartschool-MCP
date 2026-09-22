@@ -912,7 +912,11 @@ endpoints:
     observed_on: depass.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: get_children
-    notes: Empty POST. MCP lists linked children for parent/co-accounts.
+    notes: >
+      Empty POST. De Pass returns HTTP 500 HTML unless the request sends
+      X-Requested-With: XMLHttpRequest (then application/json list). Current
+      child can have accountID 0; switch ids are in the Studentcard topnav
+      gotourl links. MCP get_children sends the XHR header and merges topnav ids.
 
   - method: POST
     path: /Studentcard/Lvs/getLatestItems

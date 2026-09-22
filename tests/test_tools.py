@@ -213,6 +213,7 @@ def test_switch_child_rejects_invalid_account_id() -> None:
 
 
 def test_get_children_maps_studentcard_payload(mock_session: MagicMock) -> None:
+    mock_session.get.return_value = MagicMock(ok=True, text="", url="/Studentcard")
     mock_session.json.return_value = [
         {
             "accountID": 111,
@@ -237,13 +238,85 @@ def test_get_children_maps_studentcard_payload(mock_session: MagicMock) -> None:
     result = srv.get_children()
 
     mock_session.json.assert_called_once_with(
-        "/Studentcard/Student/getStudents", method="post"
+        "/Studentcard/Student/getStudents",
+        method="post",
+        headers={
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json",
+        },
     )
     assert result["total"] == 2
     assert result["children"][0]["account_id"] == "111"
     assert result["children"][0]["name"] == "Elliot Minnoye"
     assert result["children"][0]["class_name"] == "1bb"
     assert result["current"]["name"] == "Elliot Minnoye"
+
+
+def test_get_children_uses_topnav_id_when_account_id_is_zero(
+    mock_session: MagicMock,
+) -> None:
+    mock_session.json.return_value = [
+        {
+            "accountID": 0,
+            "userID": 11,
+            "name": "Elliot",
+            "surname": "Minnoye",
+            "fullNameBIN": "Elliot Minnoye",
+            "class": "1B-b ",
+            "isCurrentUser": True,
+        },
+        {
+            "accountID": 222,
+            "userID": 22,
+            "name": "Other",
+            "surname": "Child",
+            "fullNameBIN": "Other Child",
+            "class": "3a",
+            "isCurrentUser": False,
+        },
+    ]
+    mock_session.get.return_value = MagicMock(
+        ok=True,
+        text=(
+            '<a href="/Studentcard/Chain/gotourl/accountID/333" class="x">'
+            "<img src='/p' alt='' /><span>Elliot</span></a>"
+            '<a href="/Studentcard/Chain/gotourl/accountID/222" class="x">'
+            "<span>Other</span></a>"
+        ),
+        url="/Studentcard",
+    )
+    mock_session.authenticated_user = {"id": "parent"}
+
+    result = srv.get_children()
+
+    elliot = result["children"][0]
+    other = result["children"][1]
+    assert elliot["account_id"] == "333"
+    assert elliot["name"] == "Elliot Minnoye"
+    assert elliot["class_name"] == "1B-b"
+    assert elliot["is_current"] is True
+    assert other["account_id"] == "222"
+    assert other["is_current"] is False
+
+
+def test_get_children_falls_back_to_topnav_when_json_fails(
+    mock_session: MagicMock,
+) -> None:
+    mock_session.json.side_effect = RuntimeError("Failed to retrieve the json")
+    mock_session.get.return_value = MagicMock(
+        ok=True,
+        text=(
+            '<a href="/Studentcard/Chain/gotourl/accountID/333"><span>Elliot</span></a>'
+        ),
+        url="/Studentcard",
+    )
+    mock_session.authenticated_user = {"id": "parent"}
+
+    result = srv.get_children()
+
+    assert result["total"] == 1
+    assert result["children"][0]["account_id"] == "333"
+    assert result["children"][0]["first_name"] == "Elliot"
 
 
 def test_switch_child_hits_gotourl_and_refreshes_user(mock_session: MagicMock) -> None:

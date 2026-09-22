@@ -191,6 +191,15 @@ def _planned_element_dict(element: object) -> dict[str, Any]:
 
 
 _ACCOUNT_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_GOTOURL_RE = re.compile(
+    r"/Studentcard/Chain/gotourl/accountID/([A-Za-z0-9_-]+)"
+    r"""[^>]*>\s*(?:<img\b[^>]*>\s*)?<span>([^<]+)</span>""",
+    re.IGNORECASE | re.DOTALL,
+)
+_STUDENTCARD_XHR_HEADERS = {
+    "X-Requested-With": "XMLHttpRequest",
+    "Accept": "application/json",
+}
 _CHILD_LIST_KEYS = (
     "students",
     "children",
@@ -209,9 +218,16 @@ def _pick(data: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def _string_field(data: dict[str, Any], *keys: str) -> str | None:
+    value = _pick(data, *keys)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
 def _safe_account_id(account_id: str | int) -> str | None:
     stripped = str(account_id).strip()
-    if not stripped or not _ACCOUNT_ID_RE.fullmatch(stripped):
+    if not stripped or stripped == "0" or not _ACCOUNT_ID_RE.fullmatch(stripped):
         return None
     return stripped
 
@@ -234,14 +250,28 @@ def _as_child_records(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+def _first_name_value(data: dict[str, Any]) -> str | None:
+    first = _string_field(data, "firstName", "first_name", "voornaam")
+    if first:
+        return first
+    name = data.get("name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    return None
+
+
 def _person_name(data: dict[str, Any]) -> str | None:
-    first = _pick(data, "firstName", "first_name", "voornaam")
-    last = _pick(data, "lastName", "last_name", "surname", "naam")
-    if isinstance(first, str) and isinstance(last, str):
-        joined = f"{first} {last}".strip()
-        if joined:
-            return joined
-    name = _pick(data, "name", "fullName", "full_name")
+    bin_name = _string_field(data, "fullNameBIN", "full_name_bin")
+    if bin_name:
+        return bin_name
+    first = _first_name_value(data)
+    last = _string_field(data, "lastName", "last_name", "surname", "naam")
+    if first and last:
+        return f"{first} {last}".strip()
+    full = _string_field(data, "fullName", "full_name")
+    if full:
+        return full
+    name = data.get("name")
     if isinstance(name, dict):
         nested = _pick(
             name,
@@ -260,27 +290,27 @@ def _person_name(data: dict[str, Any]) -> str | None:
         if isinstance(nested, str) and nested.strip():
             return nested.strip()
         return None
-    if isinstance(name, str) and name.strip():
-        return name.strip()
-    if isinstance(first, str) and first.strip():
-        return first.strip()
-    if isinstance(last, str) and last.strip():
-        return last.strip()
+    if first:
+        return first
+    if last:
+        return last
     return None
 
 
 def _person_dict(data: dict[str, Any]) -> dict[str, Any]:
     """Map a Studentcard / authenticatedUser object to stable MCP fields."""
-    account_id = _pick(data, "accountID", "accountId", "account_id")
+    account_id = _safe_account_id(
+        _pick(data, "accountID", "accountId", "account_id") or ""
+    )
     user_id = _pick(data, "id", "userID", "userId", "user_id")
     return {
-        "account_id": None if account_id is None else str(account_id),
+        "account_id": account_id,
         "user_id": None if user_id is None else str(user_id),
         "username": _pick(data, "username", "userName", "user_name"),
         "name": _person_name(data),
-        "first_name": _pick(data, "firstName", "first_name", "voornaam"),
-        "last_name": _pick(data, "lastName", "last_name", "surname"),
-        "class_name": _pick(data, "className", "class_name", "class", "klas"),
+        "first_name": _first_name_value(data),
+        "last_name": _string_field(data, "lastName", "last_name", "surname"),
+        "class_name": _string_field(data, "className", "class_name", "class", "klas"),
         "platform": _pick(
             data,
             "platform",
@@ -289,8 +319,83 @@ def _person_dict(data: dict[str, Any]) -> dict[str, Any]:
             "mainUrl",
             "main_url",
         ),
-        "is_current": _pick(data, "isCurrent", "is_current", "current"),
+        "is_current": _pick(
+            data, "isCurrentUser", "isCurrent", "is_current", "current"
+        ),
     }
+
+
+def _empty_person(
+    *,
+    account_id: str | None = None,
+    name: str | None = None,
+    first_name: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "account_id": account_id,
+        "user_id": None,
+        "username": None,
+        "name": name,
+        "first_name": first_name,
+        "last_name": None,
+        "class_name": None,
+        "platform": None,
+        "is_current": None,
+    }
+
+
+def _children_from_topnav(html: str) -> list[dict[str, Any]]:
+    """Parse Mijn kinderen switch links from the Studentcard HTML shell."""
+    children: list[dict[str, Any]] = []
+    if not isinstance(html, str) or not html:
+        return children
+    seen: set[str] = set()
+    for match in _GOTOURL_RE.finditer(html):
+        account_id = _safe_account_id(match.group(1))
+        first_name = match.group(2).strip()
+        if not account_id or not first_name or account_id in seen:
+            continue
+        seen.add(account_id)
+        children.append(
+            _empty_person(
+                account_id=account_id,
+                name=first_name,
+                first_name=first_name,
+            )
+        )
+    return children
+
+
+def _merge_topnav_children(
+    json_children: list[dict[str, Any]],
+    html_children: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Fill missing switch ids from topnav; keep HTML-only siblings."""
+    used: set[str] = set()
+    merged: list[dict[str, Any]] = []
+    for child in json_children:
+        updated = dict(child)
+        if not updated.get("account_id"):
+            first = (
+                (updated.get("first_name") or updated.get("name") or "").strip().lower()
+            )
+            for html_child in html_children:
+                html_id = html_child.get("account_id")
+                html_name = (html_child.get("first_name") or "").strip().lower()
+                if html_id and html_id not in used and first and first == html_name:
+                    updated["account_id"] = html_id
+                    used.add(html_id)
+                    break
+        account_id = updated.get("account_id")
+        if isinstance(account_id, str) and account_id:
+            used.add(account_id)
+        merged.append(updated)
+    for html_child in html_children:
+        html_id = html_child.get("account_id")
+        if isinstance(html_id, str) and html_id and html_id not in used:
+            merged.append(html_child)
+            used.add(html_id)
+    return merged
 
 
 def _current_user_dict(session: Smartschool) -> dict[str, Any] | None:
@@ -898,7 +1003,11 @@ def get_children() -> dict[str, Any]:
     """
     List children linked on Mijn kinderen for this parent/co-account.
 
-    Same portal call as the website: POST /Studentcard/Student/getStudents.
+    Same portal call as the website: POST /Studentcard/Student/getStudents
+    with ``X-Requested-With: XMLHttpRequest`` (without that header the portal
+    can return HTTP 500 HTML). The current child may have ``accountID`` 0;
+    switch ids are then taken from the Mijn kinderen topnav
+    (``/Studentcard/Chain/gotourl/accountID/{id}``).
     Use ``account_id`` with switch_child to change whose Planner, results,
     and messages the other tools return. One login does not merge every
     child automatically — the session stays on the currently selected child.
@@ -910,12 +1019,25 @@ def get_children() -> dict[str, Any]:
     try:
         session = _session()
         session.ensure_authenticated()
-        payload = session.json("/Studentcard/Student/getStudents", method="post")
+        payload: Any = []
+        try:
+            payload = session.json(
+                "/Studentcard/Student/getStudents",
+                method="post",
+                headers=_STUDENTCARD_XHR_HEADERS,
+            )
+        except Exception:
+            payload = []
+
+        children = [_person_dict(raw) for raw in _as_child_records(payload)]
+        try:
+            html = getattr(session.get("/Studentcard"), "text", "") or ""
+            children = _merge_topnav_children(children, _children_from_topnav(html))
+        except Exception:
+            pass
+
         current = _current_user_dict(session)
-        children = [
-            _mark_current_child(_person_dict(raw), current)
-            for raw in _as_child_records(payload)
-        ]
+        children = [_mark_current_child(child, current) for child in children]
         return {
             "children": children,
             "current": current,

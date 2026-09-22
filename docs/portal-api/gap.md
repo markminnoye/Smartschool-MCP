@@ -53,7 +53,7 @@ Start / studentcard / LVS / other nav (all unmapped):
 | `POST /Homepage/Setting/getConfig` | Start shell |
 | `POST /Homepage/Pushwizard/getwizardconfig` | Push wizard |
 | `POST /Homepage/Pushwizard/saveactivation` | Push wizard |
-| `POST /Studentcard/Student/getStudents` | Child list on Mijn kinderen (`get_children`) |
+| `POST /Studentcard/Student/getStudents` | Child list on Mijn kinderen (`get_children`; XHR header required, topnav gotourl fills accountID 0) |
 | `GET /Studentcard/Chain/gotourl/accountID/{accountId}` | Child switch HTML (`switch_child`) |
 | `POST /Studentcard/*` (config, LVS, messages, presence, evaluations, reports) | Child overview widgets |
 | `POST /?module=LVS&file=dispatcher` | Several `lvs` / `lvs_groups` / `lvs_pupils` actions |

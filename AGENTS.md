@@ -49,7 +49,7 @@ The old **Schoolagenda** module is gone as a product (read-only from 2022, remov
 | `get_schedule` | `PlannedElements` (one day, no `types`) | `GET /planner/api/v1/planned-elements/user/{id}?from=&to=` | **Yes** — same calendar GET as the website |
 | `get_future_tasks` | `FutureTasks` | Legacy `/Agenda/Futuretasks/getFuturetasks` | Old Agenda, not Planner |
 | `get_planned_elements` | `PlannedElements` | Same path; optional `types` / `includes` (default: omit `types`) | **Yes** — default matches the calendar; pass `types` for sidebar subsets |
-| `get_children` | `POST /Studentcard/Student/getStudents` | Mijn kinderen list | Parent/co-account child list |
+| `get_children` | `POST /Studentcard/Student/getStudents` (XHR) + Studentcard topnav | Mijn kinderen list | Parent/co-account child list |
 | `switch_child` | `GET /Studentcard/Chain/gotourl/accountID/{accountId}` | Mijn kinderen switch | After switch, Planner/results follow that child |
 | Other tools | Courses, Results, Messages, … | Other portal JSON/HTML routes | Unrelated to the timetable gap |
 
