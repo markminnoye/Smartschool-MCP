@@ -25,7 +25,7 @@ Do not start a web server, do not add `.mcp.json` / `mcpServers`, and do not swi
 | `SMARTSCHOOL_PASSWORD` | Password |
 | `SMARTSCHOOL_MFA` | Birth date `YYYY-MM-DD`, or the Google Authenticator secret |
 
-Already-exported environment variables win over the file. The `smartschool` library requires all four values.
+Use either `config.env` or environment variables, not a mix. If both set any of the four variables and the values differ, the script stops and does not log in. The library requires all four values. `SMARTSCHOOL_MAIN_URL` must be https and end in `.smartschool.be`.
 
 Scripts import that library. Use the pin already in this repo (`pyproject.toml` / `uv.lock`, git rev `517de70`). Do not add a second dependency.
 
@@ -47,9 +47,9 @@ If that project path has no `pyproject.toml`, stop and follow `claude-plugin/REA
 | Cijfers, grades, points, results | `scripts/results.py` |
 | Courses, vakken, teachers | `scripts/courses.py` |
 
-Stdout is JSON. If the object contains `"error"`, report that message and stop. Do not retry with a different account.
+Stdout is JSON. If the object contains `"error"`, report that message and stop.
 
-Run `login.py` first when another script fails with an authentication error.
+On any error: tell the user and stop. Do not run the script again. Do not run a different script to retry. Do not run scripts in parallel. A message that contains `LOGIN FAILED, niet opnieuw proberen` means a previous attempt already failed; the user must delete the `auth_failed` file named in the message. Do not delete that file yourself.
 
 ## Commands
 

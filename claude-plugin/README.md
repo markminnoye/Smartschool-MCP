@@ -60,7 +60,11 @@ cp claude-plugin/config.example.env claude-plugin/config.env
 | `SMARTSCHOOL_PASSWORD` | Password |
 | `SMARTSCHOOL_MFA` | Birth date `YYYY-MM-DD`, or a Google Authenticator secret |
 
-`config.env` is gitignored. Environment variables that are already set override the file. `SMARTSCHOOL_CONFIG=/path/to/file` selects a different file.
+`config.env` is gitignored. `SMARTSCHOOL_CONFIG=/path/to/file` selects a different file.
+
+Credential rule: one source only. If `config.env` and the environment both set any of the four `SMARTSCHOOL_*` variables and the values are not identical, every script stops before login. That avoids mixing a parent password from the shell with a child username from the file.
+
+A failed login writes `~/.cache/smartschool/<user>/auth_failed`. Later runs refuse until that file is deleted by hand. Scripts do not retry and must not be started in parallel.
 
 Do not commit real values. Do not put secrets in `plugin.json` or `SKILL.md`.
 

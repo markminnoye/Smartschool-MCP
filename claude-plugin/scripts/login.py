@@ -12,10 +12,11 @@ def build() -> dict[str, Any]:
     session = open_session()
     creds = getattr(session, "creds", None)
     host = str(getattr(creds, "main_url", "") or "")
+    user = session.confirm_login()
     return {
         "ok": True,
         "main_url": host,
-        "user": public_user(session.authenticated_user),
+        "user": public_user(user),
     }
 
 

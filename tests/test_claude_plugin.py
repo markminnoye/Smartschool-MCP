@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from smartschool import Smartschool, SmartSchoolAuthenticationError
 
 import _common
 import courses
@@ -17,7 +18,13 @@ import login
 import messages
 import results
 import schedule
-from _common import load_config, open_session, parse_env_file, planned_element
+from _common import (
+    hold_session_lock,
+    load_config,
+    open_session,
+    parse_env_file,
+    planned_element,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "claude-plugin"
@@ -48,20 +55,20 @@ def test_parse_env_file_skips_comments_and_strips_quotes() -> None:
     }
 
 
-def test_load_config_does_not_override_existing_env(
+def test_load_config_refuses_mixed_sources(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     env_file = tmp_path / "config.env"
     env_file.write_text(
-        "SMARTSCHOOL_USERNAME=from-file\nSMARTSCHOOL_PASSWORD=from-file\n",
+        "SMARTSCHOOL_USERNAME=child\nSMARTSCHOOL_PASSWORD=child-secret\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv("SMARTSCHOOL_USERNAME", "from-env")
-    monkeypatch.delenv("SMARTSCHOOL_PASSWORD", raising=False)
+    monkeypatch.setenv("SMARTSCHOOL_USERNAME", "child")
+    monkeypatch.setenv("SMARTSCHOOL_PASSWORD", "parent-secret")
 
-    assert load_config(env_file) == env_file
-    assert os.environ["SMARTSCHOOL_USERNAME"] == "from-env"
-    assert os.environ["SMARTSCHOOL_PASSWORD"] == "from-file"
+    with pytest.raises(_common.CredentialMixError, match="geen poging"):
+        load_config(env_file)
+    assert os.environ["SMARTSCHOOL_PASSWORD"] == "parent-secret"
 
 
 def test_load_config_missing_file_raises(tmp_path: Path) -> None:
@@ -70,17 +77,24 @@ def test_load_config_missing_file_raises(tmp_path: Path) -> None:
 
 
 def test_open_session_loads_config_then_validates(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seen: dict[str, bool] = {}
 
-    class Creds:
+    class _Creds:
+        username = "child"
+        main_url = "school.smartschool.be"
+
         def validate(self) -> None:
             seen["validated"] = True
 
     monkeypatch.setattr(_common, "load_config", lambda: None)
-    monkeypatch.setattr(_common, "EnvCredentials", Creds)
-    monkeypatch.setattr(_common, "Smartschool", lambda creds: ("session", creds))
+    monkeypatch.setattr(_common, "EnvCredentials", _Creds)
+    monkeypatch.setattr(_common, "school_host", lambda _url: "school.smartschool.be")
+    monkeypatch.setattr(_common, "hold_session_lock", lambda _path: None)
+    missing = tmp_path / "missing"
+    monkeypatch.setattr(_common, "_auth_failed_path", lambda _user: missing)
+    monkeypatch.setattr(_common, "GuardedSession", lambda creds: ("session", creds))
 
     assert open_session()[0] == "session"
     assert seen["validated"] is True
@@ -89,7 +103,7 @@ def test_open_session_loads_config_then_validates(
 def test_login_returns_public_user_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     session = MagicMock()
     session.creds.main_url = "school.smartschool.be"
-    session.authenticated_user = {
+    session.confirm_login.return_value = {
         "id": 7,
         "name": {
             "startingWithFirstName": "Alex Example",
@@ -303,6 +317,105 @@ def test_plugin_manifest_has_no_mcp_server() -> None:
     for script in script_names:
         assert script in skill
     assert "config.example.env" in skill
+    assert "niet opnieuw proberen" in skill
+    assert "in parallel" in skill
     readme = (PLUGIN / "README.md").read_text(encoding="utf-8")
     assert "--plugin-dir" in readme
     assert "config.example.env" in readme
+    assert "auth_failed" in readme
+
+
+def test_wrong_password_posts_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posts: list[str] = []
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    class _Resp:
+        url = "https://school.smartschool.be/login"
+
+    def _super_login(self, response):
+        posts.append(response.url)
+        return _Resp()
+
+    monkeypatch.setattr(Smartschool, "_do_login", _super_login)
+    session = _guard(tmp_path)
+    with pytest.raises(SmartSchoolAuthenticationError, match="niet opnieuw proberen"):
+        session._do_login(_Resp())
+    assert posts == ["https://school.smartschool.be/login"]
+    with pytest.raises(SmartSchoolAuthenticationError, match="niet opnieuw proberen"):
+        session._do_login(_Resp())
+    assert len(posts) == 1
+
+
+def test_second_run_blocked_by_auth_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    failed = tmp_path / ".cache" / "smartschool" / "child" / "auth_failed"
+    failed.parent.mkdir(parents=True)
+    failed.write_text("login failed\n", encoding="utf-8")
+    monkeypatch.setattr(_common, "load_config", lambda: None)
+    monkeypatch.setattr(_common, "hold_session_lock", lambda _path: None)
+
+    class _Creds:
+        username = "child"
+        password = "x"
+        main_url = "school.smartschool.be"
+        mfa = "2014-01-02"
+
+        def validate(self) -> None:
+            return None
+
+    monkeypatch.setattr(_common, "EnvCredentials", _Creds)
+    with pytest.raises(SmartSchoolAuthenticationError, match="auth_failed"):
+        open_session()
+
+
+def test_wrong_host_does_not_call_super(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    called: list[str] = []
+
+    def _super_login(self, response):
+        called.append("posted")
+        return response
+
+    monkeypatch.setattr(Smartschool, "_do_login", _super_login)
+    session = _guard(tmp_path)
+    evil = SimpleNamespace(url="https://evil.example/login")
+    with pytest.raises(SmartSchoolAuthenticationError, match="not posted"):
+        session._do_login(evil)
+    assert called == []
+    assert not (tmp_path / ".cache" / "smartschool" / "child" / "auth_failed").exists()
+
+
+def test_session_lock_is_exclusive(tmp_path: Path) -> None:
+    import fcntl
+    import os
+
+    hold_session_lock(tmp_path)
+    fd = os.open(tmp_path / ".session.lock", os.O_RDWR)
+    try:
+        with pytest.raises(BlockingIOError):
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    finally:
+        os.close(fd)
+
+
+def _guard(tmp_path: Path) -> _common.GuardedSession:
+    creds = SimpleNamespace(
+        username="child",
+        password="wrong",
+        main_url="school.smartschool.be",
+        mfa="2014-01-02",
+    )
+
+    def _validate(self) -> None:
+        return None
+
+    creds.validate = _validate.__get__(creds)
+    monkey_home = tmp_path
+    assert monkey_home.exists()
+    return _common.GuardedSession(creds)
