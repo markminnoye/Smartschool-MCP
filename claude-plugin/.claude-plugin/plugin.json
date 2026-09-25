@@ -1,0 +1,14 @@
+{
+  "name": "smartschool",
+  "displayName": "Smartschool",
+  "version": "0.1.0",
+  "description": "Read-only Smartschool agenda, messages, and grades for one account. Local skill and Python scripts; no hosted MCP server.",
+  "author": {
+    "name": "Sonic Rocket / Mark",
+    "url": "https://github.com/markminnoye"
+  },
+  "homepage": "https://github.com/markminnoye/Smartschool-MCP/tree/main/claude-plugin",
+  "repository": "https://github.com/markminnoye/Smartschool-MCP",
+  "license": "MIT",
+  "keywords": ["smartschool", "agenda", "berichten", "cijfers", "education"]
+}
