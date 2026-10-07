@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from smartschool import Results
+from smartschool import Results, SmartSchoolAuthenticationError
 
 from _common import format_date, main, open_session
 
@@ -74,6 +74,8 @@ def result_row(result: object, *, include_details: bool) -> dict[str, Any]:
             row["average"] = _graphic_pair(tendencies[0].graphic)
         if len(tendencies) > 1 and hasattr(tendencies[1], "graphic"):
             row["median"] = _graphic_pair(tendencies[1].graphic)
+    except SmartSchoolAuthenticationError:
+        raise
     except Exception:
         pass
     return row

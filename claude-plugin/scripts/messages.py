@@ -6,7 +6,12 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from smartschool import BoxType, Message, MessageHeaders
+from smartschool import (
+    BoxType,
+    Message,
+    MessageHeaders,
+    SmartSchoolAuthenticationError,
+)
 
 from _common import format_date, main, open_session
 
@@ -101,6 +106,8 @@ def filter_headers(
             continue
         try:
             body = _body_text(session, header).lower()
+        except SmartSchoolAuthenticationError:
+            raise
         except Exception:
             continue
         if needle in body:
@@ -120,6 +127,10 @@ def build(argv: list[str] | None = None) -> dict[str, Any]:
     box = getattr(BoxType, box_name)
 
     session = open_session()
+    # XML mailbox calls return an empty 200 when the cookie is dead and
+    # authenticated_user.yml is still present. A live courses read either
+    # refreshes the session or raises before we can print an empty inbox.
+    session.confirm_login()
     if args.message_id is not None:
         full = Message(session, args.message_id).get()
         return message_row(full, body=str(getattr(full, "body", "") or ""))

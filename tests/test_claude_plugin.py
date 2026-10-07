@@ -114,7 +114,7 @@ def test_login_returns_public_user_fields(monkeypatch: pytest.MonkeyPatch) -> No
     }
     monkeypatch.setattr(login, "open_session", lambda: session)
 
-    payload = login.build()
+    payload = login.build([])
     assert payload["ok"] is True
     assert payload["main_url"] == "school.smartschool.be"
     assert payload["user"] == {"id": 7, "name": "Alex Example", "username": "alex"}
@@ -194,7 +194,9 @@ def test_messages_filters_sender_and_pages(monkeypatch: pytest.MonkeyPatch) -> N
             attachment=2,
         ),
     ]
-    monkeypatch.setattr(messages, "open_session", lambda: object())
+    session = MagicMock()
+    session.confirm_login.return_value = {}
+    monkeypatch.setattr(messages, "open_session", lambda: session)
     monkeypatch.setattr(messages, "MessageHeaders", lambda *_a, **_k: headers)
 
     payload = messages.build(["--sender", "jans", "--limit", "10"])
@@ -221,7 +223,9 @@ def test_messages_reads_one_id(monkeypatch: pytest.MonkeyPatch) -> None:
         attachments=0,
         body="Vergeet je boek niet",
     )
-    monkeypatch.setattr(messages, "open_session", lambda: object())
+    session = MagicMock()
+    session.confirm_login.return_value = {}
+    monkeypatch.setattr(messages, "open_session", lambda: session)
     monkeypatch.setattr(
         messages,
         "Message",
@@ -286,7 +290,7 @@ def test_courses_lists_teachers(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda _session: [SimpleNamespace(name="Aardrijkskunde", teachers=[teacher])],
     )
 
-    payload = courses.build()
+    payload = courses.build([])
     assert payload["total"] == 1
     assert payload["courses"][0]["teachers"] == ["Peeters"]
 
@@ -319,6 +323,10 @@ def test_plugin_manifest_has_no_mcp_server() -> None:
     assert "config.example.env" in skill
     assert "niet opnieuw proberen" in skill
     assert "in parallel" in skill
+    assert "once more" in skill
+    assert "prefix is removed" in skill
+    assert "must be https" not in skill
+    assert "pyotp" in skill
     readme = (PLUGIN / "README.md").read_text(encoding="utf-8")
     assert "--plugin-dir" in readme
     assert "config.example.env" in readme
@@ -389,6 +397,224 @@ def test_wrong_host_does_not_call_super(
         session._do_login(evil)
     assert called == []
     assert not (tmp_path / ".cache" / "smartschool" / "child" / "auth_failed").exists()
+
+
+def test_confirm_login_empty_course_list_is_not_a_lockout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    session = _guard(tmp_path)
+    session.json = lambda *_a, **_k: []  # type: ignore[method-assign]
+
+    assert session.confirm_login() == {}
+    assert session._authenticated_user is not None
+    assert not (tmp_path / ".cache" / "smartschool" / "child" / "auth_failed").exists()
+
+
+def test_confirm_login_empty_body_is_not_a_lockout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    session = _guard(tmp_path)
+    session.json = lambda *_a, **_k: {}  # type: ignore[method-assign]
+
+    assert session.confirm_login() == {}
+    assert not (tmp_path / ".cache" / "smartschool" / "child" / "auth_failed").exists()
+
+
+def test_login_query_error_posts_once_and_blocks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posts: list[str] = []
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    def _super_login(self, response):
+        posts.append(response.url)
+        return SimpleNamespace(url="https://school.smartschool.be/login?error=1")
+
+    monkeypatch.setattr(Smartschool, "_do_login", _super_login)
+    session = _guard(tmp_path)
+    with pytest.raises(SmartSchoolAuthenticationError, match="niet opnieuw proberen"):
+        session._do_login(SimpleNamespace(url="https://school.smartschool.be/login"))
+    assert posts == ["https://school.smartschool.be/login"]
+    assert (tmp_path / ".cache" / "smartschool" / "child" / "auth_failed").exists()
+    with pytest.raises(SmartSchoolAuthenticationError, match="niet opnieuw proberen"):
+        session._do_login(SimpleNamespace(url="https://school.smartschool.be/login"))
+    assert len(posts) == 1
+
+
+def test_verification_that_stays_on_account_page_blocks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    def _super_verify(self, response):
+        return SimpleNamespace(url="https://school.smartschool.be/account-verification")
+
+    monkeypatch.setattr(Smartschool, "_do_login_verification", _super_verify)
+    session = _guard(tmp_path)
+    with pytest.raises(SmartSchoolAuthenticationError, match="niet opnieuw proberen"):
+        session._do_login_verification(
+            SimpleNamespace(url="https://school.smartschool.be/account-verification")
+        )
+    assert (tmp_path / ".cache" / "smartschool" / "child" / "auth_failed").exists()
+
+
+def test_password_post_may_continue_to_verification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    def _super_login(self, response):
+        return SimpleNamespace(url="https://school.smartschool.be/account-verification")
+
+    monkeypatch.setattr(Smartschool, "_do_login", _super_login)
+    session = _guard(tmp_path)
+    posted = session._do_login(
+        SimpleNamespace(url="https://school.smartschool.be/login")
+    )
+    assert posted.url.endswith("/account-verification")
+    assert not (tmp_path / ".cache" / "smartschool" / "child" / "auth_failed").exists()
+
+
+def test_open_session_strips_https_prefix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, str] = {}
+
+    class _Creds:
+        username = "child"
+        main_url = "https://School.Smartschool.be/login"
+
+        def validate(self) -> None:
+            return None
+
+    monkeypatch.setattr(_common, "load_config", lambda: None)
+    monkeypatch.setattr(_common, "EnvCredentials", _Creds)
+    monkeypatch.setattr(_common, "hold_session_lock", lambda _path: None)
+    monkeypatch.setattr(
+        _common, "_auth_failed_path", lambda _user: tmp_path / "missing"
+    )
+    monkeypatch.setattr(
+        _common,
+        "GuardedSession",
+        lambda creds: captured.setdefault("main_url", creds.main_url),
+    )
+
+    open_session()
+    assert captured["main_url"] == "school.smartschool.be"
+
+
+def test_messages_expired_session_exits_nonzero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    session = MagicMock()
+    session.confirm_login.side_effect = SmartSchoolAuthenticationError(
+        "session expired"
+    )
+    monkeypatch.setattr(messages, "open_session", lambda: session)
+
+    def _headers(*_a: object, **_k: object) -> list[object]:
+        raise AssertionError("inbox was read")
+
+    monkeypatch.setattr(messages, "MessageHeaders", _headers)
+    with pytest.raises(SystemExit) as exc:
+        messages.main(lambda: messages.build([]))
+    assert exc.value.code == 1
+    assert "session expired" in capsys.readouterr().out
+    session.confirm_login.assert_called_once()
+
+
+def test_messages_search_reraises_auth_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    headers = [
+        SimpleNamespace(
+            id=1,
+            from_="Jansen",
+            subject="Andere",
+            date=date(2026, 9, 1),
+            unread=False,
+            priority=None,
+            attachments=0,
+        )
+    ]
+    session = MagicMock()
+    session.confirm_login.return_value = {}
+    monkeypatch.setattr(messages, "open_session", lambda: session)
+    monkeypatch.setattr(messages, "MessageHeaders", lambda *_a, **_k: headers)
+
+    def _body(*_a: object, **_k: object) -> str:
+        raise SmartSchoolAuthenticationError("session expired")
+
+    monkeypatch.setattr(messages, "_body_text", _body)
+    with pytest.raises(SmartSchoolAuthenticationError, match="session expired"):
+        messages.build(["--search", "huiswerk"])
+
+
+def test_results_reraises_auth_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Result(SimpleNamespace):
+        @property
+        def details(self) -> object:
+            raise SmartSchoolAuthenticationError("session expired")
+
+    row = _Result(
+        courses=[SimpleNamespace(name="Wiskunde")],
+        name="Toets",
+        gradebook_owner=SimpleNamespace(
+            name=SimpleNamespace(starting_with_first_name="Jan")
+        ),
+        period=SimpleNamespace(name="P1"),
+        graphic=SimpleNamespace(
+            description="8/10",
+            value=8,
+            achieved_points=8,
+            total_points=10,
+            percentage=80,
+        ),
+        date=date(2026, 9, 1),
+        availability_date=date(2026, 9, 2),
+        does_count=True,
+        feedback=[],
+    )
+    monkeypatch.setattr(results, "open_session", lambda: object())
+    monkeypatch.setattr(results, "Results", lambda _session: [row])
+    with pytest.raises(SmartSchoolAuthenticationError, match="session expired"):
+        results.build(["--limit", "5"])
+
+
+def test_help_does_not_open_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _boom() -> object:
+        raise AssertionError("session opened")
+
+    monkeypatch.setattr(login, "open_session", _boom)
+    monkeypatch.setattr(courses, "open_session", _boom)
+    with pytest.raises(SystemExit) as login_exit:
+        login.build(["--help"])
+    with pytest.raises(SystemExit) as courses_exit:
+        courses.build(["--help"])
+    assert login_exit.value.code == 0
+    assert courses_exit.value.code == 0
+
+
+def test_fcntl_is_not_a_top_level_import() -> None:
+    import ast
+
+    tree = ast.parse((PLUGIN / "scripts" / "_common.py").read_text(encoding="utf-8"))
+    imported = [
+        alias.name
+        for node in tree.body
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    ]
+    assert "fcntl" not in imported
+    assert "msvcrt" not in imported
+
+
+def test_pyotp_is_installed() -> None:
+    import pyotp
+
+    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert "pyotp>=2.9.0,<3" in text
+    assert pyotp.TOTP("JBSWY3DPEHPK3PXP").now()
 
 
 def test_session_lock_is_exclusive(tmp_path: Path) -> None:

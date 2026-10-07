@@ -23,9 +23,9 @@ Do not start a web server, do not add `.mcp.json` / `mcpServers`, and do not swi
 | `SMARTSCHOOL_MAIN_URL` | School host only, e.g. `school.smartschool.be` (no `https://`) |
 | `SMARTSCHOOL_USERNAME` | Smartschool username |
 | `SMARTSCHOOL_PASSWORD` | Password |
-| `SMARTSCHOOL_MFA` | Birth date `YYYY-MM-DD`, or the Google Authenticator secret |
+| `SMARTSCHOOL_MFA` | Birth date `YYYY-MM-DD`, or the Google Authenticator secret. TOTP uses the `pyotp` dependency installed by `uv sync` in this repo. |
 
-Use either `config.env` or environment variables, not a mix. If both set any of the four variables and the values differ, the script stops and does not log in. The library requires all four values. `SMARTSCHOOL_MAIN_URL` must be https and end in `.smartschool.be`.
+Use either `config.env` or environment variables, not a mix. If both set any of the four variables and the values differ, the script stops and does not log in. The library requires all four values. `SMARTSCHOOL_MAIN_URL` is the school host only, for example `school.smartschool.be`. A leading `https://` prefix is removed. The host must end in `.smartschool.be`. The password is posted only to that host over https.
 
 Scripts import that library. Use the pin already in this repo (`pyproject.toml` / `uv.lock`, git rev `517de70`). Do not add a second dependency.
 
@@ -47,9 +47,11 @@ If that project path has no `pyproject.toml`, stop and follow `claude-plugin/REA
 | Cijfers, grades, points, results | `scripts/results.py` |
 | Courses, vakken, teachers | `scripts/courses.py` |
 
-Stdout is JSON. If the object contains `"error"`, report that message and stop.
+Stdout is JSON. If the object contains `"error"`, report that message.
 
-On any error: tell the user and stop. Do not run the script again. Do not run a different script to retry. Do not run scripts in parallel. A message that contains `LOGIN FAILED, niet opnieuw proberen` means a previous attempt already failed; the user must delete the `auth_failed` file named in the message. Do not delete that file yourself.
+A message that contains `LOGIN FAILED, niet opnieuw proberen` means a password POST already failed. Stop. Do not run this script or another script again. The user must delete the `auth_failed` file named in the message. Do not delete that file yourself.
+
+Any other error (missing or mixed config, a bad flag, a host that does not end in `.smartschool.be`) happens before a password POST. Tell the user. After they fix `config.env` or the command, you may run that same script once more. Do not run scripts in parallel.
 
 ## Commands
 

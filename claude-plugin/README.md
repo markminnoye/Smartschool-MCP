@@ -55,7 +55,7 @@ cp claude-plugin/config.example.env claude-plugin/config.env
 
 | Variable | Meaning |
 | --- | --- |
-| `SMARTSCHOOL_MAIN_URL` | School host, e.g. `school.smartschool.be` (no `https://`) |
+| `SMARTSCHOOL_MAIN_URL` | School host, e.g. `school.smartschool.be`. A leading `https://` is removed. |
 | `SMARTSCHOOL_USERNAME` | Username |
 | `SMARTSCHOOL_PASSWORD` | Password |
 | `SMARTSCHOOL_MFA` | Birth date `YYYY-MM-DD`, or a Google Authenticator secret |

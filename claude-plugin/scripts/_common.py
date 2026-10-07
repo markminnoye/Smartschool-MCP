@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import atexit
 import contextlib
-import fcntl
 import json
 import logging
 import os
@@ -154,20 +153,58 @@ def auth_failed_message(username: str) -> str:
     )
 
 
+def _path_segments(url: str) -> set[str]:
+    return {part for part in urlparse(url).path.split("/") if part}
+
+
+def _path_has(url: str, *segments: str) -> bool:
+    found = _path_segments(url)
+    return any(segment in found for segment in segments)
+
+
+def _acquire_session_lock(fd: int) -> Callable[[], None]:
+    """Exclusive lock on an open fd. Unix uses flock; Windows uses msvcrt."""
+    if os.name == "nt":
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)
+        if os.fstat(fd).st_size < 1:
+            os.write(fd, b"\0")
+            os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+
+        def _release() -> None:
+            with contextlib.suppress(OSError):
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                os.close(fd)
+
+        return _release
+
+    import fcntl
+
+    fcntl.flock(fd, fcntl.LOCK_EX)
+
+    def _release() -> None:
+        with contextlib.suppress(OSError):
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+    return _release
+
+
 def hold_session_lock(cache_dir: Path) -> None:
     key = str(cache_dir.resolve())
     if key in _HELD_LOCKS:
         return
     cache_dir.mkdir(parents=True, exist_ok=True)
     fd = os.open(cache_dir / ".session.lock", os.O_CREAT | os.O_RDWR, 0o600)
-    fcntl.flock(fd, fcntl.LOCK_EX)
+    release = _acquire_session_lock(fd)
     _HELD_LOCKS.add(key)
 
     def _release() -> None:
         _HELD_LOCKS.discard(key)
-        with contextlib.suppress(OSError):
-            fcntl.flock(fd, fcntl.LOCK_UN)
-            os.close(fd)
+        release()
 
     atexit.register(_release)
 
@@ -184,18 +221,33 @@ class GuardedSession(Smartschool):
         return super().request(method, url, **kwargs)
 
     def confirm_login(self) -> dict:
-        """Real request. The yaml user cache is not treated as proof of login."""
+        """Real request. The yaml user cache is not treated as proof of login.
+
+        An empty course list or an empty body is a successful read. The
+        lockout sentence is reserved for ``_block()`` after a credential POST.
+        """
         self._authenticated_user = None
         log.info("Smartschool login check")
         payload = self.json("/course-list/api/v1/courses")
         cached = self._authenticated_user
         if isinstance(cached, dict) and cached:
             return cached
-        if isinstance(payload, list) and payload:
-            return {"id": payload[0].get("platformId")}
-        raise SmartSchoolAuthenticationError(
-            auth_failed_message(self._require_credentials().username)
-        )
+        if isinstance(payload, list):
+            user = {"id": payload[0].get("platformId")} if payload else {}
+            return self._note_live_session(user)
+        if payload in ({}, None, ""):
+            return self._note_live_session({})
+        raise SmartSchoolAuthenticationError("Login check gaf geen vakkenlijst terug.")
+
+    def _note_live_session(self, user: dict) -> dict:
+        """Remember that a live read succeeded so XML will not refetch courses.
+
+        ``platform_id`` indexes ``courses[0]`` and crashes on an empty list.
+        A direct attribute write skips the yaml setter.
+        """
+        if self._authenticated_user is None:
+            self._authenticated_user = user or {"checked": True}
+        return user
 
     def _do_login(self, response):  # type: ignore[override]
         self._assert_credential_target(getattr(response, "url", ""))
@@ -204,7 +256,10 @@ class GuardedSession(Smartschool):
         self._password_posts += 1
         log.info("Smartschool login attempt")
         posted = super()._do_login(response)
-        if str(getattr(posted, "url", "")).rstrip("/").endswith("/login"):
+        posted_url = str(getattr(posted, "url", ""))
+        # Birthday/2FA are the next step. Staying on /login, including
+        # /login?error=1, means the password was rejected.
+        if _path_has(posted_url, "login"):
             log.warning("Smartschool login failed")
             self._block()
         log.info("Smartschool login form accepted")
@@ -213,7 +268,12 @@ class GuardedSession(Smartschool):
     def _do_login_verification(self, response):  # type: ignore[override]
         self._assert_credential_target(getattr(response, "url", ""))
         log.info("Smartschool account verification")
-        return super()._do_login_verification(response)
+        posted = super()._do_login_verification(response)
+        posted_url = str(getattr(posted, "url", ""))
+        if _path_has(posted_url, "login", "account-verification"):
+            log.warning("Smartschool login verification failed")
+            self._block()
+        return posted
 
     def _refuse_if_blocked(self) -> None:
         username = self._require_credentials().username
@@ -244,7 +304,10 @@ def open_session() -> GuardedSession:
     load_config()
     credentials = EnvCredentials()
     credentials.validate()
-    school_host(credentials.main_url)
+    # The library builds "https://" + main_url. Store the bare host so a
+    # configured https://school.smartschool.be does not become https://https://…
+    host = school_host(credentials.main_url)
+    object.__setattr__(credentials, "main_url", host)
     cache = _cache_dir(credentials.username)
     if _auth_failed_path(credentials.username).exists():
         raise SmartSchoolAuthenticationError(auth_failed_message(credentials.username))

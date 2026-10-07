@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 from typing import Any
 
 from smartschool import Courses
@@ -10,7 +11,15 @@ from smartschool import Courses
 from _common import main, open_session, teacher_names
 
 
-def build() -> dict[str, Any]:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="List courses and teachers for the configured account."
+    )
+    return parser.parse_args(argv)
+
+
+def build(argv: list[str] | None = None) -> dict[str, Any]:
+    parse_args(argv)
     rows = []
     for course in Courses(open_session()):
         rows.append(
