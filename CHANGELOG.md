@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - MCP server login uses the same one-try guard as the Claude plugin: one credential POST, then `~/.cache/smartschool/<user>/auth_failed`. `/login?error=1` counts as failure. A later call does not send the password again.
+- `get_results` no longer fails the whole call when `graphic.percentage.color` is `blue` or another value outside the library enum (`green`, `red`, `olive`, `yellow`, `steel`, `grass`). Known colors stay enum members; unknown colors are kept as strings. The fork pin stays at `517de70` because this environment cannot push to `markminnoye/smartschool`.
+- `get_future_tasks` falls back to Planner `planned-assignments` (today through the next 366 days) when the legacy Agenda list is empty or unavailable, and keeps the date/course/task shape. De Pass stores Toets and Huistaak on the Planner calendar, not in `/Agenda/Futuretasks/getFuturetasks`.
 - `switch_child` follows the live Mijn kinderen chain from HAR: gotourl → `/otp/{token}` → relative `/Studentcard`. Foreign hops use a raw GET with browser navigation headers so the library cannot POST this account's password on `/login`. Cross-school `account-verification` may still run on a new device; TOTP stays blocked.
 - Claude Code plugin: an empty course list or empty body is not a login lockout; `/login?error=1` still writes `auth_failed`; a leading `https://` on `SMARTSCHOOL_MAIN_URL` is stripped; an expired message session exits with an error instead of an empty inbox; grade detail lookups re-raise authentication errors
 - Planner week fetch no longer fails when lesson payloads omit `canUserRestoreFromTrash` (`smartschool@517de70`)

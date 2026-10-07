@@ -10,7 +10,7 @@ import os
 import re
 import threading
 from contextlib import contextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 from typing import Any, TypedDict
 from urllib.parse import urljoin, urlparse
@@ -35,12 +35,16 @@ from smartschool import (
     StudentSupportLinks,
 )
 
+from smartschool_mcp.graphic_color import relax_graphic_colors
 from smartschool_mcp.guard import (
     GuardedSession,
     auth_failed_message,
     auth_failed_path,
     normalize_school_main_url,
 )
+
+# Known GraphicColor members reject De Pass "blue" (and any later new color).
+relax_graphic_colors()
 
 
 def _server_instructions() -> str | None:
@@ -871,60 +875,175 @@ class _DayDict(TypedDict):
     courses: list[_CourseDict]
 
 
+# Legacy Agenda future-tasks returns every upcoming row. Planner needs a window;
+# a year covers the rest of the school year without an open-ended query.
+_FUTURE_TASKS_HORIZON_DAYS = 366
+_FUTURE_TASK_PLANNER_TYPES = "planned-assignments"
+
+
+def _agenda_task_days(future_tasks: Any) -> list[_DayDict]:
+    """Map ``FutureTasks`` (old Schoolagenda) into the tool's day/course shape."""
+    tasks_data: list[_DayDict] = []
+    for day in future_tasks:
+        day_data: _DayDict = {
+            "date": _safe_format_date(day.date),
+            "courses": [],
+        }
+
+        for course in day.courses:
+            course_data: _CourseDict = {
+                "name": course.course_title,
+                "tasks": [],
+            }
+
+            if hasattr(course, "items") and hasattr(course.items, "tasks"):
+                for task in course.items.tasks:
+                    task_data: _TaskDict = {
+                        "label": getattr(task, "label", "N/A"),
+                        "description": getattr(task, "description", "N/A"),
+                        "warning": getattr(task, "warning", False),
+                    }
+                    course_data["tasks"].append(task_data)
+
+            if course_data["tasks"]:
+                day_data["courses"].append(course_data)
+
+        if day_data["courses"]:
+            tasks_data.append(day_data)
+    return tasks_data
+
+
+def _planned_course_names(element: object) -> str:
+    courses = getattr(element, "courses", None) or []
+    names: list[str] = []
+    for course in courses:
+        name = getattr(course, "name", None)
+        if isinstance(name, str) and name.strip():
+            names.append(name.strip())
+    return ", ".join(names) if names else "Unknown"
+
+
+def _planned_element_day(element: object) -> date | None:
+    period = getattr(element, "period", None)
+    start = getattr(period, "date_time_from", None) if period is not None else None
+    if isinstance(start, datetime):
+        return start.date()
+    if isinstance(start, date):
+        return start
+    return None
+
+
+def _planner_assignment_days(session: Smartschool) -> list[_DayDict]:
+    """Map Planner ``planned-assignments`` onto the future-tasks shape.
+
+    Used when the legacy Agenda list is empty. De Pass stores Toets and
+    Huistaak items on the calendar, not in ``/Agenda/Futuretasks``.
+    """
+    start = date.today()
+    end = start + timedelta(days=_FUTURE_TASKS_HORIZON_DAYS)
+    by_day: dict[str, dict[str, _CourseDict]] = {}
+
+    for element in PlannedElements(
+        session,
+        from_date=start,
+        till_date=end,
+        types=_FUTURE_TASK_PLANNER_TYPES,
+    ):
+        element_type = getattr(element, "planned_element_type", None)
+        if element_type not in (None, _FUTURE_TASK_PLANNER_TYPES):
+            continue
+        day = _planned_element_day(element)
+        if day is None or day < start:
+            continue
+
+        course_name = _planned_course_names(element)
+
+        assignment_type = getattr(element, "assignment_type", None)
+        raw_label = (
+            getattr(assignment_type, "name", None)
+            if assignment_type is not None
+            else None
+        )
+        label = (
+            raw_label.strip()
+            if isinstance(raw_label, str) and raw_label.strip()
+            else "Assignment"
+        )
+        raw_description = getattr(element, "name", None)
+        description = (
+            raw_description.strip()
+            if isinstance(raw_description, str) and raw_description.strip()
+            else "N/A"
+        )
+        warning = getattr(element, "warning", False)
+        task: _TaskDict = {
+            "label": label,
+            "description": description,
+            "warning": warning if isinstance(warning, bool) else False,
+        }
+
+        day_key = day.strftime("%Y-%m-%d")
+        courses_for_day = by_day.setdefault(day_key, {})
+        course_data = courses_for_day.get(course_name)
+        if course_data is None:
+            course_data = {"name": course_name, "tasks": []}
+            courses_for_day[course_name] = course_data
+        course_data["tasks"].append(task)
+
+    return [
+        {"date": day_key, "courses": list(courses_for_day.values())}
+        for day_key, courses_for_day in by_day.items()
+    ]
+
+
+def _future_tasks_payload(tasks_data: list[_DayDict]) -> dict[str, Any]:
+    total_tasks = sum(
+        len(course["tasks"]) for day in tasks_data for course in day["courses"]
+    )
+    return {
+        "future_tasks": tasks_data,
+        "total_days": len(tasks_data),
+        "total_tasks": total_tasks,
+    }
+
+
 @mcp.tool()
 def get_future_tasks() -> dict[str, Any]:
     """
     Retrieve upcoming assignments and tasks.
 
+    The legacy Schoolagenda call (POST /Agenda/Futuretasks/getFuturetasks)
+    is tried first. On Planner schools such as De Pass that list is empty
+    while tests and homework are calendar rows of type planned-assignments.
+    An empty or failing legacy list falls back to those Planner rows from
+    today through the next 366 days, in the same date/course/task shape.
+
+    For the full calendar (lessons, activities, other types) use
+    get_planned_elements.
+
     Returns:
         Dictionary with future tasks organized by date and course.
     """
+    agenda_error: Exception | None = None
     try:
-        future_tasks = FutureTasks(_session())
-        tasks_data: list[_DayDict] = []
+        tasks_data = _agenda_task_days(FutureTasks(_session()))
+    except Exception as exc:
+        agenda_error = exc
+        tasks_data = []
 
-        for day in future_tasks:
-            day_data: _DayDict = {
-                "date": _safe_format_date(day.date),
-                "courses": [],
-            }
+    if tasks_data:
+        return _future_tasks_payload(tasks_data)
 
-            for course in day.courses:
-                course_data: _CourseDict = {
-                    "name": course.course_title,
-                    "tasks": [],
-                }
+    try:
+        planner_days = _planner_assignment_days(_session())
+    except Exception:
+        # A successful empty Agenda list stays empty when Planner is unavailable.
+        # An Agenda failure is reported only when Planner fails too.
+        if agenda_error is None:
+            return _future_tasks_payload([])
+        return {"error": f"Failed to retrieve future tasks: {agenda_error!s}"}
 
-                # Extract tasks from the course
-                if hasattr(course, "items") and hasattr(course.items, "tasks"):
-                    for task in course.items.tasks:
-                        task_data: _TaskDict = {
-                            "label": getattr(task, "label", "N/A"),
-                            "description": getattr(task, "description", "N/A"),
-                            "warning": getattr(task, "warning", False),
-                        }
-                        course_data["tasks"].append(task_data)
-
-                # Only add course if it has tasks
-                if course_data["tasks"]:
-                    day_data["courses"].append(course_data)
-
-            # Only add day if it has courses with tasks
-            if day_data["courses"]:
-                tasks_data.append(day_data)
-
-        total_tasks = sum(
-            len(course["tasks"]) for day in tasks_data for course in day["courses"]
-        )
-
-        return {
-            "future_tasks": tasks_data,
-            "total_days": len(tasks_data),
-            "total_tasks": total_tasks,
-        }
-
-    except Exception as e:
-        return {"error": f"Failed to retrieve future tasks: {e!s}"}
+    return _future_tasks_payload(planner_days)
 
 
 @mcp.tool()

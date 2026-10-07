@@ -335,6 +335,7 @@ endpoints:
     observed_on: library
     library: FutureTasks
     mcp_tool: get_future_tasks
+    # MCP also falls back to Planner planned-assignments when this list is empty.
 
 
   # --- Messages ---

@@ -47,13 +47,13 @@ The old **Schoolagenda** module is gone as a product (read-only from 2022, remov
 | MCP tool | Library call | Portal endpoint (approx.) | Matches the website timetable? |
 |----------|----------------|---------------------------|--------------------------------|
 | `get_schedule` | `PlannedElements` (one day, no `types`) | `GET /planner/api/v1/planned-elements/user/{id}?from=&to=` | **Yes** — same calendar GET as the website |
-| `get_future_tasks` | `FutureTasks` | Legacy `/Agenda/Futuretasks/getFuturetasks` | Old Agenda, not Planner |
+| `get_future_tasks` | `FutureTasks`, then `PlannedElements` (`types=planned-assignments`) when that list is empty | Legacy `/Agenda/Futuretasks/getFuturetasks`, else Planner calendar | Planner fallback on schools where Agenda is empty |
 | `get_planned_elements` | `PlannedElements` | Same path; optional `types` / `includes` (default: omit `types`) | **Yes** — default matches the calendar; pass `types` for sidebar subsets |
 | `get_children` | `POST /Studentcard/Student/getStudents` (XHR) + Studentcard topnav | Mijn kinderen list | Parent/co-account child list |
 | `switch_child` | `GET /Studentcard/Chain/gotourl/accountID/{accountId}` | Mijn kinderen switch | After switch, Planner/results follow that child |
 | Other tools | Courses, Results, Messages, … | Other portal JSON/HTML routes | Unrelated to the timetable gap |
 
-So: we follow the **website’s portal stack**, not the official developers API. `get_schedule` and `get_planned_elements` both call the Planner calendar GET. `get_future_tasks` is still the old Agenda sidebar.
+So: we follow the **website’s portal stack**, not the official developers API. `get_schedule` and `get_planned_elements` both call the Planner calendar GET. `get_future_tasks` still tries the old Agenda sidebar first, and uses Planner `planned-assignments` when that list is empty.
 
 When changing planner tools: mirror the website query (`from`, `to`, optional `types`, optional `includes`) and pass through `plannedElementType` / `period` fields rather than reshaping them into old Agenda names.
 

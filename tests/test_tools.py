@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, time, timedelta
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from smartschool import Attachment
+from smartschool._objects import GraphicColor, PercentageGraphic, TextGraphic
 
 import smartschool_mcp.server as srv
 
@@ -57,12 +60,19 @@ def test_get_results_returns_error_on_exception() -> None:
 
 
 def test_get_future_tasks_returns_error_on_exception() -> None:
-    with patch(
-        "smartschool_mcp.server.FutureTasks", side_effect=RuntimeError("timeout")
+    with (
+        patch(
+            "smartschool_mcp.server.FutureTasks", side_effect=RuntimeError("timeout")
+        ),
+        patch(
+            "smartschool_mcp.server.PlannedElements",
+            side_effect=RuntimeError("planner down"),
+        ),
     ):
         result = srv.get_future_tasks()
     assert isinstance(result, dict)
     assert "error" in result
+    assert "timeout" in result["error"]
 
 
 def test_get_messages_returns_error_on_exception() -> None:
@@ -611,10 +621,14 @@ def test_get_future_tasks_counts_tasks_correctly() -> None:
     mock_day.date = None
     mock_day.courses = [mock_course]
 
-    with patch("smartschool_mcp.server.FutureTasks", return_value=[mock_day]):
+    with (
+        patch("smartschool_mcp.server.FutureTasks", return_value=[mock_day]),
+        patch("smartschool_mcp.server.PlannedElements") as mock_planned,
+    ):
         result = srv.get_future_tasks()
 
     assert result["total_tasks"] == 2  # was broken before (returned 4 = len(task_dict))
+    mock_planned.assert_not_called()
 
 
 def test_get_messages_invalid_box_type_defaults_to_inbox() -> None:
@@ -692,6 +706,257 @@ def test_get_results_with_details() -> None:
         "description": "7.8/10",
         "value": 7.8,
     }
+
+
+def _evaluation_payload(
+    *, color: str, name: str, description: str
+) -> dict[str, object]:
+    """Minimal ``/results/api/v1/evaluations/`` row (camelCase, as on the wire)."""
+    person = {
+        "id": "1",
+        "pictureHash": "h",
+        "pictureUrl": "https://example.be/a",
+        "description": {"startingWithFirstName": "", "startingWithLastName": ""},
+        "name": {
+            "startingWithFirstName": "Anna Jansen",
+            "startingWithLastName": "Jansen Anna",
+        },
+        "sort": "j",
+        "deleted": False,
+    }
+    school_class = {
+        "identifier": "1",
+        "id": 1,
+        "platformId": 1,
+        "name": "1B",
+        "type": "K",
+        "icon": "b",
+    }
+    year = {
+        "id": 1,
+        "dateRange": {
+            "start": "2025-09-01T00:00:00+02:00",
+            "end": "2026-08-31T00:00:00+02:00",
+        },
+    }
+    return {
+        "identifier": f"eval-{name}",
+        "type": "normal",
+        "name": name,
+        "graphic": {
+            "type": "percentage",
+            "color": color,
+            "value": 80,
+            "description": description,
+        },
+        "date": "2026-03-11T00:00:00+01:00",
+        "gradebookOwner": person,
+        "component": None,
+        "courses": [
+            {
+                "id": 101,
+                "name": "Wiskunde",
+                "graphic": {"type": "icon", "value": "calc"},
+                "teachers": [],
+                "class": school_class,
+                "skoreClassId": 1,
+                "parentCourseId": None,
+                "skoreWorkYear": year,
+            }
+        ],
+        "period": {
+            "id": 1,
+            "name": "Period 1",
+            "icon": "i",
+            "skoreWorkYear": year,
+            "isActive": True,
+            "class": school_class,
+        },
+        "feedback": [],
+        "feedbacks": [],
+        "availabilityDate": "2026-03-11T00:00:00+01:00",
+        "isPublished": True,
+        "doesCount": True,
+    }
+
+
+def test_percentage_graphic_keeps_blue_and_unknown_colors() -> None:
+    """SR-93: blue and any other unknown color must not fail validation."""
+    blue = PercentageGraphic(
+        type="percentage", color="blue", value=80, description="8/10"
+    )
+    assert blue.color == "blue"
+    assert not isinstance(blue.color, GraphicColor)
+
+    purple = PercentageGraphic(
+        type="percentage", color="purple", value=50, description="5/10"
+    )
+    assert purple.color == "purple"
+
+    green = PercentageGraphic(
+        type="percentage", color="green", value=90, description="9/10"
+    )
+    assert isinstance(green.color, GraphicColor)
+    assert green.color == GraphicColor.GREEN
+
+    letter = TextGraphic(type="text", color="blue", value="B", description="letter")
+    assert letter.color == "blue"
+
+
+def test_get_results_accepts_blue_and_unknown_graphic_colors(
+    mock_session: MagicMock,
+) -> None:
+    """One blue row used to fail the entire get_results call."""
+    mock_session.json.return_value = [
+        _evaluation_payload(color="blue", name="Toets blauw", description="8/10"),
+        _evaluation_payload(color="purple", name="Toets paars", description="6/10"),
+        _evaluation_payload(color="green", name="Toets groen", description="9/10"),
+    ]
+
+    result = srv.get_results(include_details=False)
+
+    assert "error" not in result
+    by_name = {row["assignment"]: row for row in result["results"]}
+    assert set(by_name) == {"Toets blauw", "Toets paars", "Toets groen"}
+    assert by_name["Toets blauw"]["course"] == "Wiskunde"
+    assert by_name["Toets blauw"]["percentage"] == 0.8
+    assert by_name["Toets blauw"]["score_description"] == "8/10"
+    assert by_name["Toets paars"]["percentage"] == 0.6
+    assert by_name["Toets groen"]["percentage"] == 0.9
+    assert result["pagination"]["total"] == 3
+
+
+def _planned_assignment(
+    *,
+    name: str,
+    course: str,
+    label: str,
+    when: datetime,
+    element_type: str = "planned-assignments",
+) -> MagicMock:
+    element = MagicMock()
+    element.name = name
+    element.planned_element_type = element_type
+    element.period.date_time_from = when
+    element.courses = [SimpleNamespace(name=course)]
+    element.assignment_type = SimpleNamespace(name=label)
+    return element
+
+
+def test_get_future_tasks_falls_back_to_planned_assignments() -> None:
+    """SR-94: empty Agenda list still returns Planner Toets/Huistaak rows."""
+    today = date.today()
+    friday = datetime.combine(today + timedelta(days=2), time(8, 25))
+    later = datetime.combine(today + timedelta(days=6), time(10, 0))
+    homework = datetime.combine(today + timedelta(days=2), time(13, 0))
+    past = datetime.combine(today - timedelta(days=1), time(8, 0))
+    elements = [
+        _planned_assignment(
+            name="Hoofdstuk 2 - Goed kijken",
+            course="Wiskunde",
+            label="Toets",
+            when=friday,
+        ),
+        _planned_assignment(
+            name="En classe",
+            course="Frans",
+            label="Toets",
+            when=later,
+        ),
+        _planned_assignment(
+            name="Hoofdstuk 3 - Schatten",
+            course="Wiskunde",
+            label="Huistaak (met punten)",
+            when=homework,
+        ),
+        _planned_assignment(
+            name="oude taak",
+            course="Wiskunde",
+            label="Toets",
+            when=past,
+        ),
+        _planned_assignment(
+            name="lesuur",
+            course="Wiskunde",
+            label="Les",
+            when=friday,
+            element_type="planned-lessons",
+        ),
+    ]
+
+    with (
+        patch("smartschool_mcp.server.FutureTasks", return_value=[]),
+        patch(
+            "smartschool_mcp.server.PlannedElements", return_value=elements
+        ) as mock_planned,
+    ):
+        result = srv.get_future_tasks()
+
+    assert "error" not in result
+    assert result["total_days"] == 2
+    assert result["total_tasks"] == 3
+    first, second = result["future_tasks"]
+    assert first["date"] == friday.date().isoformat()
+    assert first["courses"] == [
+        {
+            "name": "Wiskunde",
+            "tasks": [
+                {
+                    "label": "Toets",
+                    "description": "Hoofdstuk 2 - Goed kijken",
+                    "warning": False,
+                },
+                {
+                    "label": "Huistaak (met punten)",
+                    "description": "Hoofdstuk 3 - Schatten",
+                    "warning": False,
+                },
+            ],
+        }
+    ]
+    assert second["date"] == later.date().isoformat()
+    assert second["courses"][0]["name"] == "Frans"
+    assert second["courses"][0]["tasks"][0]["description"] == "En classe"
+    kwargs = mock_planned.call_args.kwargs
+    assert kwargs["types"] == "planned-assignments"
+    assert kwargs["from_date"] == today
+    assert kwargs["till_date"] == today + timedelta(days=srv._FUTURE_TASKS_HORIZON_DAYS)
+
+
+def test_get_future_tasks_keeps_empty_agenda_when_planner_fails() -> None:
+    with (
+        patch("smartschool_mcp.server.FutureTasks", return_value=[]),
+        patch(
+            "smartschool_mcp.server.PlannedElements",
+            side_effect=RuntimeError("planner down"),
+        ),
+    ):
+        result = srv.get_future_tasks()
+
+    assert result == {"future_tasks": [], "total_days": 0, "total_tasks": 0}
+
+
+def test_get_future_tasks_falls_back_when_agenda_raises() -> None:
+    when = datetime.combine(date.today() + timedelta(days=1), time(9, 0))
+    element = _planned_assignment(
+        name="Hoofdstuk 3",
+        course="Wiskunde",
+        label="Huistaak",
+        when=when,
+    )
+    with (
+        patch(
+            "smartschool_mcp.server.FutureTasks",
+            side_effect=RuntimeError("agenda gone"),
+        ),
+        patch("smartschool_mcp.server.PlannedElements", return_value=[element]),
+    ):
+        result = srv.get_future_tasks()
+
+    assert result["total_tasks"] == 1
+    task = result["future_tasks"][0]["courses"][0]["tasks"][0]
+    assert task["label"] == "Huistaak"
+    assert task["description"] == "Hoofdstuk 3"
 
 
 def test_get_messages_includes_attachment_fields() -> None:

@@ -126,7 +126,7 @@ Do not invent extra MCP tools from the leftover catalog (calendars, labels, …)
 | MCP tool | Library | Website timetable? |
 |----------|---------|--------------------|
 | `get_schedule` | `PlannedElements` (one day, no `types`) | **Yes** — same calendar GET as the website |
-| `get_future_tasks` | `FutureTasks` (Agenda JSON) | Old Agenda, not Planner |
+| `get_future_tasks` | `FutureTasks` (Agenda JSON), then Planner `types=planned-assignments` when that list is empty | Legacy first; Planner assignments on De Pass |
 | `get_planned_elements` | `PlannedElements` (optional `types` / `includes`) | **Yes** — default matches the calendar |
 | `get_courses` | `Courses` (`/results/api/v1/courses/`) | Live results course list; not the Planner `course-list` call |
 | `get_results` / `get_periods` / `get_reports` | Results APIs | Live; library evaluations query is a subset of the UI filters |
