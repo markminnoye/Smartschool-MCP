@@ -199,3 +199,6 @@ docs/portal-api/raw/
 
 # Local clone of svaningelgem/smartschool (library PRs happen there, not in this repo)
 vendor/
+
+# Claude plugin credentials (copy from claude-plugin/config.example.env)
+claude-plugin/config.env
