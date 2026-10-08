@@ -1760,7 +1760,9 @@ def get_planner_attachments(
         days_ahead: Used when to_date is omitted (default: 34).
         include_raw: Add key names and URL-like fields from the calendar row
             and, when the school sends one, the assignment-detail JSON.
-            Query strings, cookies, and secret-looking values are left out.
+            Each ``attachments[]`` item also includes its id, mimeType, and
+            visibility, so those can be compared with ``file_id``. File names,
+            query strings, cookies, and secret-looking values are left out.
             Use this when ``download_planner_file`` cannot find a path.
     """
     try:
@@ -1852,7 +1854,8 @@ _PLANNER_DOWNLOAD_FAILED = (
     "Er stond geen link van de school in de gegevens, "
     "en de paden die we daarna probeerden gaven geen bestand terug. "
     "Vraag de bijlagen opnieuw op met include_raw op true "
-    "en kijk welke veldnamen en links erin staan."
+    "en vergelijk het id, het bestandstype en de zichtbaarheid "
+    "van attachments met het file_id. Bestandsnamen staan daar niet bij."
 )
 
 
@@ -1895,15 +1898,18 @@ def download_planner_file(
     Download one file from a planner item's upload folders.
 
     A same-host URL in the calendar or assignment-detail payload is tried
-    first. If that is missing or does not return a file, a few planner-shaped
-    paths built from the file id are tried with GET, still on the same host,
-    and the first one that returns a file is saved. ``download_path`` says
+    first. If that is missing or does not return a file, GET tries
+    attachment routes
+    (``/planner/api/v1/planned-assignments/{platformId}/{assignmentId}/attachments/{attachmentId}``
+    with and without ``/download``, plus planned-elements variants) and then
+    the older ``/files/`` guesses. All of those stay on the same host. The
+    first response that looks like a file is saved. ``download_path`` says
     which path worked. ``live_verified`` stays false: none of those paths is
     confirmed against the website.
 
     If every path fails, the error is in Dutch and lists the paths that were
     tried. Ask for ``get_planner_attachments(..., include_raw=true)`` to see
-    the field names and links the school actually sent.
+    attachment id, mimeType, and visibility (not file names) plus any links.
 
     Args:
         element_id: Planner element UUID.

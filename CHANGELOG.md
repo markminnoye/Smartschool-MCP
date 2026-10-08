@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `download_planner_file` also GETs attachment routes built from `attachments[].id` (`/planner/api/v1/planned-assignments/{platformId}/{assignmentId}/attachments/{attachmentId}`, with and without `/download`, plus planned-elements variants) before the older `/files/` guesses. `include_raw=true` now includes each attachment's id, mimeType, and visibility, and still omits file names. `live_verified` stays false.
 - `download_course_document` keeps the filename from `Content-Disposition` when the download sends one, and otherwise adds an extension from the short Smartschool type (`pdf`, `docx`) or the real MIME type. An extension that is already present is not doubled.
 - `get_results` reads class average and median from the evaluation JSON itself. The library types `centralTendencies` as a list of strings, so object payloads used to fail validation and stay null. Strings, graphics, and fields such as `classAverage` / `gemiddelde` / `mediaan` are accepted. When the school hides the numbers they stay null. `include_raw=true` summarizes the first result's detail keys.
 - MCP server login uses the same one-try guard as the Claude plugin: one credential POST, then `~/.cache/smartschool/<subdomain>/<user>/auth_failed`. `/login?error=1` counts as failure. A later call does not send the password again.

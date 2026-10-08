@@ -300,6 +300,12 @@ def test_download_planner_file_refuses_foreign_url(mock_session: MagicMock) -> N
     called = " ".join(str(call.args) for call in mock_session.get.call_args_list)
     assert "evil.example" not in called
     assert "/planner/api/v1/files/file-1/download" in result["tried"]
+    assert (
+        f"/planner/api/v1/planned-assignments/49/{_ELEMENT_ID}/attachments/file-1"
+    ) in result["tried"]
+    assert (
+        f"/planner/api/v1/planned-elements/{_ELEMENT_ID}/attachments/file-1/download"
+    ) in result["tried"]
 
 
 def test_download_planner_file_refuses_missing_url(mock_session: MagicMock) -> None:
@@ -351,7 +357,8 @@ def test_download_planner_file_stops_at_first_file(
     )
     assert result["bytes_written"] == 4
     assert result["download_path"] == (
-        "/planner/api/v1/upload-folders/folder-1/files/file-1/download"
+        "/planner/api/v1/planned-assignments/49/"
+        f"{_ELEMENT_ID}/attachments/file-1/download"
     )
     assert result["live_verified"] is False
     assert mock_session.get.call_count == 2
@@ -383,6 +390,109 @@ def test_get_planner_attachments_include_raw_hides_secrets(
         item["value"] == "/planner/api/v1/files/file-1/download" for item in urls
     )
     assert result["raw"]["detail"]["present"] is False
+
+
+def test_get_planner_attachments_include_raw_shows_safe_attachment_values(
+    mock_session: MagicMock,
+) -> None:
+    calendar = _planner_raw(
+        plannedElementType="planned-assignments",
+        publicInfo="",
+        uploadFolders=[],
+    )
+    detail = {
+        "id": _ELEMENT_ID,
+        "attachments": [
+            {
+                "id": "att-1",
+                "fileName": "klaslijst-geheim.pdf",
+                "fileSize": 12,
+                "mimeType": "application/pdf",
+                "visibility": {"option": "after_end", "daysAfterEnd": 1},
+            }
+        ],
+        "uploadFolder": {"id": "folder-9", "name": "Geheim map"},
+    }
+
+    def fake_json(path: str, **kwargs: object) -> object:
+        if path.startswith("/planner/api/v1/planned-assignments/"):
+            return detail
+        return [calendar]
+
+    mock_session.authenticated_user = {"id": "49_1_2"}
+    mock_session.json.side_effect = fake_json
+    result = srv.get_planner_attachments(
+        _ELEMENT_ID,
+        from_date="2026-09-17",
+        to_date="2026-09-17",
+        include_raw=True,
+    )
+    listed = result["upload_folders"]
+    file_ids = [item["id"] for folder in listed for item in folder["files"]]
+    assert file_ids == ["att-1"]
+    raw_detail = result["raw"]["detail"]
+    assert raw_detail["attachments"] == [
+        {
+            "path": "attachments[]",
+            "id": "att-1",
+            "mimeType": "application/pdf",
+            "visibility": {"option": "after_end", "daysAfterEnd": 1},
+        }
+    ]
+    blob = str(result["raw"])
+    assert "klaslijst-geheim.pdf" not in blob
+    assert "Geheim map" not in blob
+
+
+def test_download_planner_file_tries_attachment_route_first(
+    mock_session: MagicMock, tmp_path
+) -> None:
+    calendar = _planner_raw(
+        plannedElementType="planned-assignments",
+        publicInfo="",
+        uploadFolders=[],
+    )
+    detail = {
+        "id": _ELEMENT_ID,
+        "attachments": [
+            {
+                "id": "att-1",
+                "fileName": "oefening.pdf",
+                "mimeType": "application/pdf",
+                "fileSize": 4,
+                "visibility": {"option": "visible", "daysAfterEnd": 0},
+            }
+        ],
+        "uploadFolder": {"id": "folder-9"},
+    }
+
+    def fake_json(path: str, **kwargs: object) -> object:
+        if path.startswith("/planner/api/v1/planned-assignments/"):
+            return detail
+        return [calendar]
+
+    mock_session.authenticated_user = {"id": "49_1_2"}
+    mock_session.json.side_effect = fake_json
+    mock_session.get.return_value = MagicMock(
+        ok=True,
+        content=b"%PDF",
+        status_code=200,
+        headers={"Content-Type": "application/pdf"},
+    )
+    result = srv.download_planner_file(
+        _ELEMENT_ID,
+        "att-1",
+        from_date="2026-09-17",
+        to_date="2026-09-17",
+        save_path=str(tmp_path),
+    )
+    expected = f"/planner/api/v1/planned-assignments/49/{_ELEMENT_ID}/attachments/att-1"
+    assert result["download_path"] == expected
+    assert result["live_verified"] is False
+    assert mock_session.get.call_args_list[0].args[0] == expected
+    assert all(
+        call.args[0].startswith("/planner/") for call in mock_session.get.call_args_list
+    )
 
 
 def test_get_planner_attachments_returns_error_on_exception(

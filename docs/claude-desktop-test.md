@@ -114,6 +114,6 @@ Heb je het wachtwoord al een paar keer op de Smartschool-website geprobeerd, dan
 | --- | --- |
 | Sla dit vakdocument op. (`download_course_document`) | Het bestand in Downloads, map `smartschool`, heeft een extensie zoals `.pdf` of `.docx`. Ook als Smartschool de naam zonder extensie toont. |
 | Welke bestanden hangen aan die taak? (`get_planner_attachments`) Daarna: sla dat plannerbestand op. (`download_planner_file`) | Lukt het, dan staat het bestand in die map en zegt Claude welk pad werkte. Lukt het niet, dan komt een Nederlandse fout. Er komt geen leeg bestand. |
-| Toon de bijlagen van dat planneritem met include_raw op true. (`get_planner_attachments`) | Veldnamen van de bijlage, en links die de school meestuurt. Geen cookies en geen wachtwoord. Gebruik dit als opslaan niet lukt, en stuur die veldnamen door. |
+| Toon de bijlagen van dat planneritem met include_raw op true. (`get_planner_attachments`) | Bij elke bijlage: id, bestandstype en zichtbaarheid, plus veldnamen en links. Geen bestandsnaam, geen cookies en geen wachtwoord. Vergelijk dat id met het file_id van de download. |
 | Wat zijn de laatste punten, met het klasgemiddelde en de mediaan? (`get_results`) | Gemiddelde en mediaan staan erbij als de school ze toont. Anders blijven ze leeg. Een school of leerkracht mag ze verbergen. |
 | Toon van het eerste cijfer de detailvelden, met include_raw op true. (`get_results`) | Je ziet of Smartschool die getallen meestuurt, aan de veldnamen. Geen cookies en geen namen. |
