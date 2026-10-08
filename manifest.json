@@ -140,8 +140,8 @@
     },
     "birth_date": {
       "type": "string",
-      "title": "Geboortedatum van je kind",
-      "description": "jjjj-mm-dd. De geboortedatum van je kind, voor de extra verificatie van Smartschool.",
+      "title": "Geboortedatum van je kind (jjjj-mm-dd)",
+      "description": "De geboortedatum van je kind, voor de extra verificatie van Smartschool.",
       "required": false,
       "sensitive": true
     },

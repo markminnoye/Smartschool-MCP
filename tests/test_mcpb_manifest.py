@@ -55,8 +55,8 @@ def test_manifest_configure_saves_into_the_central_store() -> None:
         assert field["description"]
     assert user_config["password"]["sensitive"] is True
     assert user_config["birth_date"]["sensitive"] is True
-    assert user_config["birth_date"]["title"] == "Geboortedatum van je kind"
-    assert "jjjj-mm-dd" in user_config["birth_date"]["description"]
+    assert user_config["birth_date"]["title"] == "Geboortedatum van je kind (jjjj-mm-dd)"
+    assert "jjjj-mm-dd" in user_config["birth_date"]["title"]
     assert user_config["child_name"]["title"] == "Naam van je kind"
     assert user_config["school"].get("sensitive") is not True
     assert manifest["display_name"] == "Smartschool voor ouders"
