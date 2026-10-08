@@ -2,7 +2,7 @@
 
 Dit is een test voor een ouder. Je downloadt één bestand, opent het in Claude Desktop, en vult daarna school, gebruikersnaam, wachtwoord, geboortedatum en de naam van je kind in. Dat doe je in het venster **Configure**. Je maakt zelf geen accountbestand aan.
 
-Elke nieuwe testbuild krijgt een hoger nummer, zodat Claude **Update** toont en de builds uit elkaar te houden zijn. De volgende is **0.3.0-rc.1**, daarna **0.3.0-rc.2**, enzovoort. Die naam staat bij de extensie.
+Deze testversie is **0.3.0-rc.2**. Elke nieuwe testbuild krijgt een hoger nummer, zodat Claude **Update** toont en de builds uit elkaar te houden zijn. De volgende is **0.3.0-rc.3**, daarna **0.3.0-rc.4**, enzovoort. Die naam staat bij de extensie.
 
 ## 1. Het bestand downloaden
 
