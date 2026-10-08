@@ -2,6 +2,8 @@
 
 Dit is een test voor een ouder. Je downloadt één bestand, opent het in Claude Desktop, en vult daarna school, gebruikersnaam, wachtwoord, geboortedatum en de naam van je kind in. Dat doe je in het venster **Configure**. Je maakt zelf geen accountbestand aan.
 
+Deze testversie is **0.3.0-test.1**. Die naam staat bij de extensie in Claude Desktop.
+
 ## 1. Het bestand downloaden
 
 Je zoekt een bestand dat eindigt op `.mcpb`. GitHub stopt dat bestand in een zip.

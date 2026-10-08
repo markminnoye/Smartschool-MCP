@@ -23,7 +23,8 @@ def _server_tool_names() -> list[str]:
 def test_manifest_configure_saves_into_the_central_store() -> None:
     manifest = _manifest()
     assert manifest["manifest_version"] == "0.4"
-    assert manifest["version"] == "0.2.0"
+    assert manifest["version"] == "0.3.0-test.1"
+    assert 'version = "0.3.0-test.1"' in build_mcpb.bundle_pyproject()
     assert manifest["server"]["type"] == "uv"
     assert manifest["server"]["entry_point"] == "smartschool_mcp/__main__.py"
     config = manifest["server"]["mcp_config"]

@@ -40,7 +40,7 @@ def bundle_pyproject() -> str:
     """Runtime project for the bundle. The fork is a path, not a git clone."""
     return f"""[project]
 name = "smartschool-mcp"
-version = "0.2.0"
+version = "0.3.0-test.1"
 description = "Smartschool MCP server for Claude Desktop"
 requires-python = ">=3.10"
 dependencies = [
