@@ -423,13 +423,37 @@ def file_download(
         if _as_id(raw.get("id")).lower() != element_id.lower():
             continue
         prepared = prepare_planned_element(raw)
+        source = _source_file(raw, file_id)
         for folder in prepared.get("uploadFolders") or []:
             for item in folder.get("files") or []:
                 if _as_id(item.get("id")).lower() == file_id.lower():
                     found = dict(item)
                     found["folder_id"] = folder.get("id") or ""
                     found["folder_name"] = folder.get("name") or ""
+                    if source is not None:
+                        found["_source"] = source
                     return found
+    return None
+
+
+def _source_file(raw: dict[str, Any], file_id: str) -> dict[str, Any] | None:
+    """Original file object, so unknown URL fields stay available."""
+    folders = None
+    for key in ("uploadFolders", "upload_folders", "attachments"):
+        if key in raw:
+            folders = raw.get(key)
+            break
+    for folder in _coerce_folder_list(folders):
+        if not isinstance(folder, dict):
+            continue
+        file_list = _first_list(folder, "files", "uploads", "items", "attachments")
+        candidates = file_list if file_list is not None else [folder]
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            item_id = _as_id(item.get("id", item.get("fileId"))).lower()
+            if item_id == file_id.lower():
+                return item
     return None
 
 
@@ -446,3 +470,162 @@ def portal_download_target(session: Any, url: str) -> str | None:
     if isinstance(base, str) and target.startswith(base):
         return target
     return None
+
+
+_PATH_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_SECRET_KEY_RE = re.compile(
+    r"(?i)cookie|token|password|secret|authorization|csrf|session"
+)
+_DIAGNOSTIC_KEY_RE = re.compile(
+    r"(?i)upload|attach|folder|file|document|link|url|href|download"
+)
+
+
+def _path_id(value: object) -> str | None:
+    text = _as_id(value)
+    if _PATH_ID_RE.fullmatch(text):
+        return text
+    return None
+
+
+def _public_download_path(target: str) -> str:
+    """Path without query or fragment, so a signed URL is not echoed."""
+    return target.split("?", 1)[0].split("#", 1)[0]
+
+
+def planner_download_candidates(
+    session: Any,
+    *,
+    element_id: str,
+    file_info: dict[str, Any],
+    platform_id: int | None,
+) -> list[str]:
+    """Same-host GETs to try for one planner file.
+
+    Nothing here is live-verified. A URL already on the file is tried first.
+    The rest are planner-shaped paths built from ids in that same payload.
+    My Documents and Intradesk are different modules and are not guessed:
+    an id collision there could save the wrong file.
+    """
+    paths: list[str] = []
+
+    def add(url: object) -> None:
+        if not isinstance(url, str):
+            return
+        target = portal_download_target(session, url)
+        if target and target not in paths:
+            paths.append(target)
+
+    add(file_info.get("download_url"))
+    source = file_info.get("_source")
+    if isinstance(source, dict):
+        for url in _url_strings(source):
+            add(url)
+
+    file_id = _path_id(file_info.get("id"))
+    revision_id = _path_id(file_info.get("revision_id"))
+    folder_id = _path_id(file_info.get("folder_id"))
+    element = _path_id(element_id)
+    platform = None
+    if (
+        isinstance(platform_id, int)
+        and not isinstance(platform_id, bool)
+        and platform_id > 0
+    ):
+        platform = str(platform_id)
+    if file_id:
+        add(f"/planner/api/v1/files/{file_id}/download")
+        if revision_id:
+            add(f"/planner/api/v1/files/{file_id}/revisions/{revision_id}/download")
+        if folder_id:
+            add(f"/planner/api/v1/upload-folders/{folder_id}/files/{file_id}/download")
+        if element:
+            add(f"/planner/api/v1/planned-elements/{element}/files/{file_id}/download")
+        if platform and element:
+            add(
+                "/planner/api/v1/planned-assignments/"
+                f"{platform}/{element}/files/{file_id}/download"
+            )
+    return paths
+
+
+def _url_strings(node: object, *, depth: int = 0) -> list[str]:
+    found: list[str] = []
+    if depth > 5:
+        return found
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if isinstance(key, str) and _SECRET_KEY_RE.search(key):
+                continue
+            if isinstance(value, str):
+                text = value.strip()
+                if (
+                    text.startswith("/")
+                    or text.startswith("http://")
+                    or text.startswith("https://")
+                ):
+                    found.append(text)
+            else:
+                found.extend(_url_strings(value, depth=depth + 1))
+    elif isinstance(node, list):
+        for item in node[:20]:
+            found.extend(_url_strings(item, depth=depth + 1))
+    return found
+
+
+def json_diagnostic(value: object, *, max_keys: int = 80) -> dict[str, Any]:
+    """Key paths and URL-like values. Query strings and secret keys are dropped."""
+    keys: list[str] = []
+    urls: list[dict[str, str]] = []
+
+    def walk(node: object, path: str, depth: int) -> None:
+        if len(keys) >= max_keys or depth > 6:
+            return
+        if isinstance(node, dict):
+            for key, child in node.items():
+                if not isinstance(key, str):
+                    continue
+                child_path = f"{path}.{key}" if path else key
+                keys.append(child_path)
+                if _SECRET_KEY_RE.search(key):
+                    continue
+                if isinstance(child, str):
+                    safe = _public_url(child)
+                    if safe:
+                        urls.append({"key": child_path, "value": safe})
+                else:
+                    walk(child, child_path, depth + 1)
+        elif isinstance(node, list) and node:
+            walk(node[0], f"{path}[]", depth + 1)
+
+    walk(value, "", 0)
+    return {"keys": keys, "url_fields": urls}
+
+
+def _public_url(value: str) -> str | None:
+    text = value.strip()
+    if not text or text.startswith("//") or ".." in text:
+        return None
+    if not (
+        text.startswith("/")
+        or text.startswith("http://")
+        or text.startswith("https://")
+    ):
+        return None
+    cut = _public_download_path(text)
+    if len(cut) > 300:
+        cut = cut[:300]
+    return cut
+
+
+def attachment_diagnostic(raw: dict[str, Any]) -> dict[str, Any]:
+    """Top-level keys, plus key/URL detail for attachment-shaped fields."""
+    element_keys = [key for key in raw if isinstance(key, str)]
+    fields: dict[str, Any] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or _DIAGNOSTIC_KEY_RE.search(key) is None:
+            continue
+        if _SECRET_KEY_RE.search(key):
+            continue
+        fields[key] = json_diagnostic(value)
+    return {"element_keys": element_keys, "fields": fields}
