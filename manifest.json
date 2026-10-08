@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "smartschool-mcp",
   "display_name": "Smartschool",
-  "version": "0.2.0",
+  "version": "0.3.0-rc.1",
   "description": "Rooster, punten, taken en berichten van Smartschool voor één kind.",
   "long_description": "Claude Desktop-extensie voor het Smartschool-portaal. De server start via uv en praat via stdio. Vul school, gebruikersnaam, wachtwoord, geboortedatum en de naam van je kind in via Configure. Die gegevens worden eenmalig bewaard in ~/.config/smartschool/credentials.json (op een Mac het wachtwoord in de Sleutelhanger). Staat dat profiel er al, dan wint dat bestand en maakt Configure geen tweede kopie.",
   "author": {

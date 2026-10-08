@@ -23,7 +23,7 @@ def _server_tool_names() -> list[str]:
 def test_manifest_configure_saves_into_the_central_store() -> None:
     manifest = _manifest()
     assert manifest["manifest_version"] == "0.4"
-    assert manifest["version"] == "0.2.0"
+    assert manifest["version"] == "0.3.0-rc.1"
     assert manifest["server"]["type"] == "uv"
     assert manifest["server"]["entry_point"] == "smartschool_mcp/__main__.py"
     config = manifest["server"]["mcp_config"]
@@ -73,6 +73,7 @@ def test_bundle_pyproject_vendors_the_pinned_fork() -> None:
     assert build_mcpb.SMARTSCHOOL_REV in text
     assert 'path = "vendor/smartschool"' in text
     assert "git =" not in text
+    assert 'version = "0.3.0rc1"' in text
     build_mcpb.assert_repo_pin(ROOT)
 
 
