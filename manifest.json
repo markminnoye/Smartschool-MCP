@@ -4,7 +4,7 @@
   "display_name": "Smartschool",
   "version": "0.2.0",
   "description": "Rooster, punten, taken en berichten van Smartschool voor één kind.",
-  "long_description": "Claude Desktop-extensie voor het Smartschool-portaal. De server start via uv en praat via stdio. Het account komt uit het gedeelde bestand ~/.config/smartschool/credentials.json. Deze extensie vraagt geen wachtwoord en bewaart geen tweede kopie.",
+  "long_description": "Claude Desktop-extensie voor het Smartschool-portaal. De server start via uv en praat via stdio. Vul school, gebruikersnaam, wachtwoord, geboortedatum en de naam van je kind in via Configure. Die gegevens worden eenmalig bewaard in ~/.config/smartschool/credentials.json (op een Mac het wachtwoord in de Sleutelhanger). Staat dat profiel er al, dan wint dat bestand en maakt Configure geen tweede kopie.",
   "author": {
     "name": "Mauro Druwel",
     "email": "mauro.druwel@gmail.com",
@@ -31,7 +31,12 @@
         "smartschool_mcp"
       ],
       "env": {
-        "MCP_TRANSPORT": "stdio"
+        "MCP_TRANSPORT": "stdio",
+        "SMARTSCHOOL_MAIN_URL": "${user_config.school}",
+        "SMARTSCHOOL_USERNAME": "${user_config.username}",
+        "SMARTSCHOOL_PASSWORD": "${user_config.password}",
+        "SMARTSCHOOL_MFA": "${user_config.birth_date}",
+        "SMARTSCHOOL_CHILD_NAME": "${user_config.child_name}"
       }
     }
   },
@@ -113,6 +118,40 @@
       "description": "Download een foto uit een startpaginablok"
     }
   ],
+  "user_config": {
+    "school": {
+      "type": "string",
+      "title": "School",
+      "description": "Subdomein van de school, bijvoorbeeld dering of depass",
+      "required": false
+    },
+    "username": {
+      "type": "string",
+      "title": "Gebruikersnaam",
+      "description": "Smartschool-gebruikersnaam",
+      "required": false
+    },
+    "password": {
+      "type": "string",
+      "title": "Wachtwoord",
+      "description": "Smartschool-wachtwoord. Eenmalig bewaard, niet in het chatvenster.",
+      "required": false,
+      "sensitive": true
+    },
+    "birth_date": {
+      "type": "string",
+      "title": "Geboortedatum van het kind",
+      "description": "jjjj-mm-dd",
+      "required": false,
+      "sensitive": true
+    },
+    "child_name": {
+      "type": "string",
+      "title": "Naam van het kind",
+      "description": "De naam waarmee Claude het kind kiest",
+      "required": false
+    }
+  },
   "keywords": ["smartschool", "school", "planner", "cijfers"],
   "license": "MIT",
   "compatibility": {

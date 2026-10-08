@@ -62,6 +62,18 @@ _NO_CREDENTIALS = (
     "of start in een terminal om ze eenmalig op te slaan. "
     "Geen loginpoging gedaan."
 )
+NO_DESKTOP_CREDENTIALS = (
+    "Er zijn nog geen Smartschool-gegevens ingesteld. Open in Claude Desktop "
+    "Instellingen > Extensies > Smartschool > Configure en vul school, "
+    "gebruikersnaam, wachtwoord, geboortedatum en naam van je kind in. "
+    "Sluit daarna Claude helemaal af en open het opnieuw."
+)
+INCOMPLETE_DESKTOP_CREDENTIALS = (
+    "De Smartschool-gegevens zijn onvolledig. Open in Claude Desktop "
+    "Instellingen > Extensies > Smartschool > Configure en vul school, "
+    "gebruikersnaam, wachtwoord, geboortedatum (jjjj-mm-dd) en naam van je kind in. "
+    "Sluit daarna Claude helemaal af en open het opnieuw. Geen loginpoging gedaan."
+)
 _KEYCHAIN_SERVICE = "smartschool-mcp"
 _KEYCHAIN_MFA_SERVICE = "smartschool-mcp-mfa"
 _SECRET_ENV_KEYS = ("SMARTSCHOOL_PASSWORD", "SMARTSCHOOL_MFA")
@@ -953,6 +965,154 @@ def activate_saved_credentials() -> None:
         f"Meerdere profielen ({labels}). Kies met SMARTSCHOOL_PROFILE. "
         "Geen loginpoging gedaan."
     )
+
+
+def _strip_unfilled_user_config() -> None:
+    """Drop unsubstituted mcpb placeholders. They are not a school name."""
+    for key, value in list(os.environ.items()):
+        if not key.startswith("SMARTSCHOOL_"):
+            continue
+        text = value.strip()
+        if text.startswith("${user_config.") and text.endswith("}"):
+            os.environ.pop(key, None)
+
+
+def _profiles_with_id(
+    profiles: list[dict[str, Any]], host: str, username: str
+) -> list[dict[str, Any]]:
+    try:
+        want = profile_id(host, username)
+    except (SmartSchoolAuthenticationError, CredentialStoreError):
+        return []
+    matched: list[dict[str, Any]] = []
+    for profile in profiles:
+        try:
+            pid = profile_id(
+                str(profile.get("main_url", "")), str(profile.get("username", ""))
+            )
+        except (SmartSchoolAuthenticationError, CredentialStoreError):
+            continue
+        if pid == want:
+            matched.append(profile)
+    return matched
+
+
+def _desktop_multiple_message(profiles: list[dict[str, Any]]) -> str:
+    labels = ", ".join(_profile_label(profile) for profile in profiles)
+    return (
+        f"Meerdere profielen ({labels}). Kies er één: open in Claude Desktop "
+        "Instellingen > Extensies > Smartschool > Configure en vul de school "
+        "en de gebruikersnaam van dat profiel in. Sluit daarna Claude helemaal "
+        "af en open het opnieuw. Geen loginpoging gedaan."
+    )
+
+
+def _checked_dialog_host(school: str, username: str) -> tuple[str, str]:
+    try:
+        return normalize_school(school), _check_username(username)
+    except (SmartSchoolAuthenticationError, CredentialStoreError) as exc:
+        raise MissingCredentialsError(str(exc)) from None
+
+
+def _save_dialog_or_keep_store(
+    profiles: list[dict[str, Any]],
+    school: str,
+    username: str,
+    password: str,
+    birth: str,
+    child_name: str,
+) -> None:
+    """Save a complete Configure dialog once, unless that profile is stored.
+
+    An existing profile is applied as stored. Nothing is logged and Smartschool
+    is not contacted.
+    """
+    host, user = _checked_dialog_host(school, username)
+    try:
+        normalize_birth_date(birth)
+    except CredentialStoreError as exc:
+        raise MissingCredentialsError(str(exc)) from None
+    matches = _profiles_with_id(profiles, host, user)
+    if not matches:
+        save_credentials(user, password, host, birth, child_name)
+        matches = _profiles_with_id(load_profiles(), host, user)
+    if len(matches) != 1:
+        raise MissingCredentialsError(INCOMPLETE_DESKTOP_CREDENTIALS)
+    _apply_saved(matches[0])
+
+
+def _activate_process_override(profiles: list[dict[str, Any]]) -> None:
+    """Use a full env account that is not the Configure dialog. Do not save it."""
+    try:
+        activate_saved_credentials()
+    except MissingCredentialsError as exc:
+        if str(exc).startswith("Meerdere profielen"):
+            raise MissingCredentialsError(_desktop_multiple_message(profiles)) from None
+        raise
+    if (
+        _env_username()
+        and _nonempty("SMARTSCHOOL_PASSWORD")
+        and _nonempty("SMARTSCHOOL_MAIN_URL")
+        and _nonempty("SMARTSCHOOL_MFA")
+    ):
+        return
+    if len(profiles) > 1:
+        raise MissingCredentialsError(_desktop_multiple_message(profiles))
+    if profiles or _env_username() or _nonempty("SMARTSCHOOL_PASSWORD"):
+        raise MissingCredentialsError(INCOMPLETE_DESKTOP_CREDENTIALS)
+    raise MissingCredentialsError(NO_DESKTOP_CREDENTIALS)
+
+
+def _select_stored_profile(
+    profiles: list[dict[str, Any]], school: str, username: str
+) -> None:
+    host, user = _checked_dialog_host(school, username)
+    matches = _profiles_with_id(profiles, host, user)
+    if len(matches) == 1:
+        _apply_saved(matches[0])
+        return
+    if len(profiles) > 1 or len(matches) > 1:
+        raise MissingCredentialsError(_desktop_multiple_message(matches or profiles))
+    raise MissingCredentialsError(INCOMPLETE_DESKTOP_CREDENTIALS)
+
+
+def prepare_server_credentials() -> None:
+    """Apply the central store, or save a complete Configure dialog once.
+
+    A matching stored profile wins and is not copied again. A missing account
+    raises a parent-facing message. No login and no logging of secrets.
+    """
+    _strip_unfilled_user_config()
+    _maybe_seed_legacy()
+    _sync_user_alias()
+    profiles = load_profiles()
+    school = _nonempty("SMARTSCHOOL_MAIN_URL")
+    username = _env_username()
+    password = _nonempty("SMARTSCHOOL_PASSWORD")
+    birth = _nonempty("SMARTSCHOOL_MFA")
+    child_name = _nonempty("SMARTSCHOOL_CHILD_NAME")
+    if school and username and password and birth and child_name:
+        _save_dialog_or_keep_store(
+            profiles, school, username, password, birth, child_name
+        )
+        return
+    if password and username and not child_name:
+        _activate_process_override(profiles)
+        return
+    if school and username:
+        _select_stored_profile(profiles, school, username)
+        return
+    if child_name or password or birth or school or username:
+        if len(profiles) == 1 and not school and not username:
+            _apply_saved(profiles[0])
+            return
+        raise MissingCredentialsError(INCOMPLETE_DESKTOP_CREDENTIALS)
+    if len(profiles) == 1:
+        _apply_saved(profiles[0])
+        return
+    if len(profiles) > 1:
+        raise MissingCredentialsError(_desktop_multiple_message(profiles))
+    raise MissingCredentialsError(NO_DESKTOP_CREDENTIALS)
 
 
 def profile_cache_dir(main_url: str, username: str) -> Path:

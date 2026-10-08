@@ -24,7 +24,7 @@ def test_env_session_uses_lru_cache() -> None:
     srv._env_session.cache_clear()
 
     with (
-        patch("smartschool_mcp.server.activate_saved_credentials"),
+        patch("smartschool_mcp.server.prepare_server_credentials"),
         patch.object(srv, "_open_env_session", return_value="session") as mock_open,
     ):
         first = srv._env_session()

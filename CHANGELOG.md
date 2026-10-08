@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Claude Desktop `.mcpb` bundle (`manifest.json`, `scripts/build_mcpb.py`, MCPB workflow artifact). The bundle starts the stdio server against the shared account file `~/.config/smartschool/credentials.json` and does not collect a second password. The bundle vendors `markminnoye/smartschool` at `517de70`.
+- Claude Desktop `.mcpb` bundle (`manifest.json`, `scripts/build_mcpb.py`, MCPB workflow artifact). Configure asks for school, username, password, birth date, and child name, and saves them once into `~/.config/smartschool/credentials.json` (Keychain on macOS) when that profile is not already stored. An existing profile wins. With no account, tools return a Dutch Configure message. The bundle vendors `markminnoye/smartschool` at `517de70`.
 - Dutch parent test guide: `docs/claude-desktop-test.md`
 - `get_children` — list linked children on Mijn kinderen (`POST /Studentcard/Student/getStudents` with XHR headers; topnav gotourl fills the current child's switch id when `accountID` is 0)
 - `switch_child(account_id)` — switch the session to another linked child (`GET /Studentcard/Chain/gotourl/accountID/{accountId}`); Planner/results then follow that child. Cross-school hops (De Ring `/otp/...`) are followed without replaying the original host.
