@@ -39,13 +39,13 @@ def assert_repo_pin(root: Path = ROOT) -> None:
 def bundle_pyproject() -> str:
     """Runtime project for the bundle. The fork is a path, not a git clone.
 
-    Release bundles stay on ``0.2.0``. A test build uses manifest
-    ``0.3.0-rc.N`` and project version ``0.3.0rcN`` (the next one is
-    ``0.3.0-rc.1`` / ``0.3.0rc1``). ``uv lock`` rejects ``0.3.0-rc.1``.
+    This test artifact uses manifest ``0.3.0-rc.2`` and project version
+    ``0.3.0rc2``. The next test build is ``0.3.0-rc.3`` / ``0.3.0rc3``.
+    ``uv lock`` rejects the hyphen form ``0.3.0-rc.2``.
     """
     return f"""[project]
 name = "smartschool-mcp"
-version = "0.2.0"
+version = "0.3.0rc2"
 description = "Smartschool MCP server for Claude Desktop"
 requires-python = ">=3.10"
 dependencies = [
@@ -110,6 +110,10 @@ def stage_bundle(dest: Path, vendor_project: Path) -> None:
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
     shutil.copy2(ROOT / "manifest.json", dest / "manifest.json")
+    icon = ROOT / "icon.png"
+    if not icon.is_file():
+        raise SystemExit("icon.png is missing; the bundle manifest points at it")
+    shutil.copy2(icon, dest / "icon.png")
     shutil.copytree(
         ROOT / "smartschool_mcp",
         dest / "smartschool_mcp",
