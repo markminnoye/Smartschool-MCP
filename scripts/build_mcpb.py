@@ -39,8 +39,11 @@ def assert_repo_pin(root: Path = ROOT) -> None:
 def bundle_pyproject() -> str:
     """Runtime project for the bundle. The fork is a path, not a git clone.
 
-    The manifest version Claude Desktop shows is ``0.3.0-test.1``. ``uv lock``
-    only accepts a PEP 440 version, so this project version is the local form.
+    This artifact's manifest version is ``0.3.0-test.1``. ``uv lock`` rejects
+    that spelling, so the project version below is ``0.3.0+test.1``. Do not
+    renumber this artifact in place. The next test build is manifest
+    ``0.3.0-rc.1`` and project version ``0.3.0rc1``, then ``0.3.0-rc.2`` /
+    ``0.3.0rc2``.
     """
     return f"""[project]
 name = "smartschool-mcp"

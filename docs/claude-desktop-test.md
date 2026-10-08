@@ -4,6 +4,8 @@ Dit is een test voor een ouder. Je downloadt één bestand, opent het in Claude 
 
 Deze testversie is **0.3.0-test.1**. Die naam staat bij de extensie in Claude Desktop.
 
+Elke volgende testbuild krijgt een hoger nummer, zodat Claude **Update** toont en de builds uit elkaar te houden zijn. De volgende is **0.3.0-rc.1**, daarna **0.3.0-rc.2**, enzovoort.
+
 ## 1. Het bestand downloaden
 
 Je zoekt een bestand dat eindigt op `.mcpb`. GitHub stopt dat bestand in een zip.
