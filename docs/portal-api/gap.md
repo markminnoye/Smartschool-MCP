@@ -125,9 +125,11 @@ Do not invent extra MCP tools from the leftover catalog (calendars, labels, …)
 
 | MCP tool | Library | Website timetable? |
 |----------|---------|--------------------|
-| `get_schedule` | `PlannedElements` (one day, no `types`) | **Yes** — same calendar GET as the website |
+| `get_schedule` | calendar JSON, same query as `PlannedElements` (one day, no `types`) | **Yes** — same calendar GET as the website. `id` is on every fixture. `description` and `uploadFolders` are **not** in the fixtures |
 | `get_future_tasks` | `FutureTasks` (Agenda JSON), then Planner `types=planned-assignments` when that list is empty | Legacy first; Planner assignments on De Pass |
-| `get_planned_elements` | `PlannedElements` (optional `types` / `includes`) | **Yes** — default matches the calendar |
+| `get_planned_elements` | calendar JSON, same query as `PlannedElements` (optional `types` / `includes`) | **Yes** — default matches the calendar |
+| `get_planner_attachments` / `download_planner_file` | same calendar GET with `includes=icon,courses,locations,upload-folders,labels`; assignment detail GET only when an assignment row has neither description nor folders | Include list matches the website. **Upload-folder JSON and the assignment-detail body are unverified.** Download only follows a same-host URL found in that payload |
+| `get_course_documents` / `download_course_document` | `TopNavCourses` + `FolderItem` | Documenten HTML listing and `/Documents/Download/Index/...` (library fixtures; live on De Ring). Not planner upload folders |
 | `get_courses` | `Courses` (`/results/api/v1/courses/`) | Live results course list; not the Planner `course-list` call |
 | `get_results` / `get_periods` / `get_reports` | Results APIs | Live; library evaluations query is a subset of the UI filters |
 | `get_messages` / `get_attachments` / `download_attachment` | Messages XML | Inbox list/detail live; attachments/download not in this HAR |

@@ -51,7 +51,7 @@ Een geslaagde test toont gegevens uit Smartschool. Een leeg antwoord kan kloppen
 | Vraag | Verwacht resultaat |
 | --- | --- |
 | Welke kinderen hangen aan dit account? (`get_children`) | De namen van de gekoppelde kinderen, en wie er nu actief is. |
-| Zet het account op de naam die ik invulde. (`switch_child`) | Claude wisselt naar dat kind. Daarna gaan rooster en punten over dat kind. |
+| Zet het account op de naam uit `credentials.json`. (`switch_child`) | Claude wisselt naar dat kind. Daarna gaan rooster en punten over dat kind. |
 | Welke vakken heeft dit kind? (`get_courses`) | Een lijst met vakken en leerkrachten. |
 | Wat zijn de laatste punten? (`get_results`) | Cijfers, met vak en datum. |
 | Welke taken moet dit kind nog maken? (`get_future_tasks`) | Taken, gegroepeerd per dag. |
@@ -70,6 +70,10 @@ Pas daarna, als een bericht of een blok een bijlage of foto heeft:
 | Welke bijlagen heeft dat bericht? (`get_attachments`) | De namen van de bestanden bij dat ene bericht. |
 | Sla die bijlage op. (`download_attachment`) | Het bestand staat in de map Downloads, in een map `smartschool`. |
 | Sla die foto van de startpagina op. (`download_homepage_image`) | De foto staat in diezelfde map Downloads. |
+| Welke bestanden hangen aan die taak of les? (`get_planner_attachments`) | De bijlagen van dat planneritem, als de school ze meestuurt. |
+| Sla dat plannerbestand op. (`download_planner_file`) | Het bestand staat in de map Downloads, in een map `smartschool`. |
+| Welke documenten heeft dit vak? (`get_course_documents`) | De documentenlijst van dat vak. |
+| Sla dat vakdocument op. (`download_course_document`) | Het bestand staat in de map Downloads, in een map `smartschool`. |
 
 ## 5. Als inloggen mislukt
 

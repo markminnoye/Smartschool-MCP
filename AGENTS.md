@@ -46,9 +46,11 @@ The old **Schoolagenda** module is gone as a product (read-only from 2022, remov
 
 | MCP tool | Library call | Portal endpoint (approx.) | Matches the website timetable? |
 |----------|----------------|---------------------------|--------------------------------|
-| `get_schedule` | `PlannedElements` (one day, no `types`) | `GET /planner/api/v1/planned-elements/user/{id}?from=&to=` | **Yes** — same calendar GET as the website |
+| `get_schedule` | calendar JSON (same query as `PlannedElements`, one day, no `types`) | `GET /planner/api/v1/planned-elements/user/{id}?from=&to=` | **Yes** — same calendar GET as the website. Also returns `id`, `description`, and `upload_folders` when the JSON has them |
 | `get_future_tasks` | `FutureTasks`, then `PlannedElements` (`types=planned-assignments`) when that list is empty | Legacy `/Agenda/Futuretasks/getFuturetasks`, else Planner calendar | Planner fallback on schools where Agenda is empty |
-| `get_planned_elements` | `PlannedElements` | Same path; optional `types` / `includes` (default: omit `types`) | **Yes** — default matches the calendar; pass `types` for sidebar subsets |
+| `get_planned_elements` | calendar JSON (same query as `PlannedElements`) | Same path; optional `types` / `includes` (default: omit `types`) | **Yes** — default matches the calendar; pass `types` for sidebar subsets |
+| `get_planner_attachments` / `download_planner_file` | calendar JSON with `includes=icon,courses,locations,upload-folders,labels`; assignment detail only as fallback | `GET /planner/api/v1/planned-elements/user/{id}` and, if needed, `GET /planner/api/v1/planned-assignments/{platformId}/{assignmentId}` | Include list matches the website. **Response body for upload folders and assignment detail is not live-verified.** Download uses a URL from that payload only |
+| `get_course_documents` / `download_course_document` | `TopNavCourses` + `FolderItem` | `GET /Documents/Index/Index/courseID/{courseId}/ssID/{platformId}` and `GET /Documents/Download/Index/...` | Documenten in the lesson module. Not planner upload folders |
 | `get_children` | `POST /Studentcard/Student/getStudents` (XHR) + Studentcard topnav | Mijn kinderen list | Parent/co-account child list |
 | `switch_child` | `GET /Studentcard/Chain/gotourl/accountID/{accountId}` | Mijn kinderen switch | After switch, Planner/results follow that child |
 | Other tools | Courses, Results, Messages, … | Other portal JSON/HTML routes | Unrelated to the timetable gap |
@@ -63,7 +65,7 @@ Sanitized website-vs-library-vs-MCP mapping: [`docs/portal-api/`](docs/portal-ap
 
 ## Architecture
 
-Single-file MCP server `smartschool_mcp/server.py` plus `smartschool_mcp/__main__.py`. Top-level `main.py` is a backward-compatibility shim.
+MCP server `smartschool_mcp/server.py` plus `smartschool_mcp/planner_fields.py` (calendar id, description, upload folders) and `smartschool_mcp/__main__.py`. Top-level `main.py` is a backward-compatibility shim.
 
 ### Transport
 

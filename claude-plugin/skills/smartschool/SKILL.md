@@ -92,7 +92,7 @@ schedule.py --from 2026-09-22 --days-ahead 6
 schedule.py --types planned-lessons
 ```
 
-`--offset 0` is today. `--types` is optional (`planned-lessons`, `planned-assignments`, `planned-to-dos`, …). Omit it for the full timetable.
+`--offset 0` is today. `--types` is optional (`planned-lessons`, `planned-assignments`, `planned-to-dos`, …). Omit it for the full timetable. `--includes` is forwarded (the website uses `icon,courses,locations,upload-folders,labels`). Whether that include adds upload-folder JSON is not live-verified.
 
 Berichten (default inbox, headers only):
 

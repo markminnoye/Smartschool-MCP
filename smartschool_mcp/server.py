@@ -21,8 +21,10 @@ from smartschool import (
     AppCredentials,
     Attachments,
     BoxType,
+    CourseCondensed,
     Courses,
     EnvCredentials,
+    FolderItem,
     FutureTasks,
     Message,
     MessageHeaders,
@@ -33,6 +35,7 @@ from smartschool import (
     Smartschool,
     SmartSchoolAuthenticationError,
     StudentSupportLinks,
+    TopNavCourses,
 )
 
 from smartschool_mcp.credentials import activate_saved_credentials
@@ -41,6 +44,16 @@ from smartschool_mcp.guard import (
     auth_failed_message,
     auth_failed_path,
     normalize_school_main_url,
+)
+from smartschool_mcp.planner_fields import (
+    ASSIGNMENT_DETAIL_TYPES,
+    PLANNER_ATTACHMENT_INCLUDES,
+    element_id_or_none,
+    fetch_assignment_detail,
+    fetch_calendar,
+    fetch_calendar_raw,
+    file_download,
+    portal_download_target,
 )
 
 
@@ -247,45 +260,6 @@ def _csv_or_none(value: str | None) -> str | None:
         return None
     stripped = value.strip()
     return stripped or None
-
-
-def _organiser_names(element: object) -> list[str]:
-    organisers = getattr(element, "organisers", None)
-    users = getattr(organisers, "users", None) or []
-    names: list[str] = []
-    for user in users:
-        name = getattr(user, "name", None)
-        first = getattr(name, "starting_with_first_name", None)
-        if first:
-            names.append(str(first))
-        elif name:
-            names.append(str(name))
-    return names
-
-
-def _planned_element_dict(element: object) -> dict[str, Any]:
-    period = getattr(element, "period", None)
-    start = getattr(period, "date_time_from", None) if period else None
-    end = getattr(period, "date_time_to", None) if period else None
-    assignment_type = getattr(element, "assignment_type", None)
-    courses = getattr(element, "courses", None) or []
-    locations = getattr(element, "locations", None) or []
-    return {
-        "name": getattr(element, "name", "") or "",
-        "type": getattr(element, "planned_element_type", None),
-        "from": start.strftime("%Y-%m-%d %H:%M") if start else None,
-        "to": end.strftime("%Y-%m-%d %H:%M") if end else None,
-        "whole_day": getattr(period, "whole_day", None) if period else None,
-        "color": getattr(element, "color", None),
-        "courses": [c.name for c in courses],
-        "locations": [getattr(loc, "title", str(loc)) for loc in locations],
-        "organisers": _organiser_names(element),
-        "unconfirmed": getattr(element, "unconfirmed", None),
-        "pinned": getattr(element, "pinned", None),
-        "assignment_type": (
-            assignment_type.name if assignment_type is not None else None
-        ),
-    }
 
 
 _ACCOUNT_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -799,6 +773,287 @@ def _install_lenient_grade_colors() -> None:
 _install_lenient_grade_colors()
 
 
+_DOCUMENTS_BROWSE_RE = re.compile(
+    r"^/Documents/Index/Index/courseID/(\d+)(?:/parentID/\d+)?/ssID/(\d+)$"
+)
+_DOCUMENTS_DOWNLOAD_RE = re.compile(
+    r"^/Documents/Download/Index/htm/\d/courseID/(\d+)/docID/(\d+)/ssID/(\d+)$"
+)
+
+
+def _course_document_item(item: object) -> dict[str, Any]:
+    name = str(getattr(item, "name", "") or "")
+    link = getattr(item, "link", None)
+    if isinstance(link, str) and link.strip():
+        return {"kind": "link", "name": name, "link": link.strip()}
+    browse = getattr(item, "browse_url", None)
+    download = getattr(item, "download_url", None)
+    if (
+        isinstance(browse, str)
+        and browse.startswith("/Documents/")
+        and not isinstance(download, str)
+    ):
+        return {"kind": "folder", "name": name, "browse_url": browse}
+    modified = _safe_format_date(getattr(item, "last_modified", None))
+    if modified is None:
+        raw_modified = getattr(item, "last_modified", None)
+        modified = raw_modified if isinstance(raw_modified, str) else None
+    size_kb = getattr(item, "size_kb", None)
+    if not isinstance(size_kb, (int, float)) or isinstance(size_kb, bool):
+        size_kb = None
+    view_url = getattr(item, "view_url", None)
+    doc_id = getattr(item, "id", None)
+    return {
+        "kind": "file",
+        "id": doc_id if isinstance(doc_id, int) else None,
+        "name": name,
+        "mime_type": str(getattr(item, "mime_type", "") or ""),
+        "size_kb": size_kb,
+        "last_modified": modified,
+        "view_url": view_url if isinstance(view_url, str) else None,
+    }
+
+
+def _checked_browse_url(
+    browse_url: str | None, course_id: int, platform_id: int
+) -> str | None:
+    if browse_url is None:
+        return None
+    match = _DOCUMENTS_BROWSE_RE.fullmatch(browse_url.strip())
+    if match is None:
+        raise ValueError("browse_url is not a course Documents folder path")
+    if int(match.group(1)) != course_id or int(match.group(2)) != platform_id:
+        raise ValueError("browse_url does not match course_id and platform_id")
+    return browse_url.strip()
+
+
+@mcp.tool()
+def get_course_documents(
+    course_id: int | None = None,
+    platform_id: int | None = None,
+    browse_url: str | None = None,
+) -> dict[str, Any]:
+    """
+    List Documenten for one course in the lesson module (Vakken).
+
+    Without course_id, returns TopNav courses (integer id + platform_id).
+    Those ids are not the ids from get_courses (results API).
+
+    With course_id, lists one folder via FolderItem:
+    ``GET /Documents/Index/Index/courseID/{courseId}/ssID/{platformId}``.
+    That HTML listing and its parentID subfolders are in the library fixtures
+    and were seen live on De Ring. Pass browse_url from a folder row to open
+    a subfolder. Uploadzone (indienzone) is a different module and is not listed.
+
+    Args:
+        course_id: TopNav course id. Omit to list courses.
+        platform_id: School platform id. Looked up from TopNav when omitted.
+        browse_url: Optional Documents folder path returned by an earlier call.
+    """
+    try:
+        session = _session()
+        if course_id is None:
+            courses = []
+            for course in TopNavCourses(session):
+                courses.append(
+                    {
+                        "id": getattr(course, "id", None),
+                        "platform_id": getattr(course, "platform_id", None),
+                        "name": getattr(course, "name", "") or "",
+                        "teacher": getattr(course, "teacher", "") or "",
+                    }
+                )
+            return {
+                "courses": courses,
+                "total": len(courses),
+                "note": (
+                    "course_id is the TopNav Documents id, not the id from get_courses"
+                ),
+            }
+        if (
+            isinstance(course_id, bool)
+            or not isinstance(course_id, int)
+            or course_id <= 0
+        ):
+            return {"error": "Invalid course_id"}
+
+        resolved_platform = platform_id
+        course_name = ""
+        teacher = ""
+        if resolved_platform is None:
+            for course in TopNavCourses(session):
+                if getattr(course, "id", None) == course_id:
+                    resolved_platform = getattr(course, "platform_id", None)
+                    course_name = getattr(course, "name", "") or ""
+                    teacher = getattr(course, "teacher", "") or ""
+                    break
+        if (
+            isinstance(resolved_platform, bool)
+            or not isinstance(resolved_platform, int)
+            or resolved_platform <= 0
+        ):
+            return {"error": "platform_id is required and was not found on TopNav"}
+
+        safe_browse = _checked_browse_url(browse_url, course_id, resolved_platform)
+        course = CourseCondensed(
+            session=session,
+            name=course_name or str(course_id),
+            teacher=teacher,
+            url="",
+            id=course_id,
+            platform_id=resolved_platform,
+        )
+        folder = FolderItem(
+            session=session,
+            parent=None,
+            course=course,
+            name="(Root)",
+            browse_url=safe_browse,
+        )
+        items = [_course_document_item(item) for item in folder.items]
+        return {
+            "course_id": course_id,
+            "platform_id": resolved_platform,
+            "browse_url": folder.browse_url,
+            "items": items,
+            "total": len(items),
+        }
+    except Exception as e:
+        return {"error": f"Failed to retrieve course documents: {e!s}"}
+
+
+@mcp.tool()
+def download_course_document(
+    course_id: int,
+    document_id: int,
+    platform_id: int | None = None,
+    browse_url: str | None = None,
+    save_path: str | None = None,
+) -> dict[str, Any]:
+    """
+    Download one file from a course Documenten folder.
+
+    The file is looked up in that folder (not in subfolders) and saved from
+    the download path FolderItem parsed out of the HTML, which in the library
+    fixtures is ``/Documents/Download/Index/htm/{0|1}/courseID/.../docID/...``.
+
+    Args:
+        course_id: TopNav course id from get_course_documents.
+        document_id: File id from a ``kind=file`` row.
+        platform_id: School platform id. Looked up when omitted.
+        browse_url: Subfolder path when the file is not in the course root.
+        save_path: Optional directory (default: ~/Downloads/smartschool/).
+    """
+    try:
+        if (
+            isinstance(course_id, bool)
+            or not isinstance(course_id, int)
+            or course_id <= 0
+        ):
+            return {"error": "Invalid course_id"}
+        if (
+            isinstance(document_id, bool)
+            or not isinstance(document_id, int)
+            or document_id <= 0
+        ):
+            return {"error": "Invalid document_id"}
+        listing = get_course_documents(
+            course_id=course_id, platform_id=platform_id, browse_url=browse_url
+        )
+        if "error" in listing:
+            return {"error": str(listing["error"])}
+        match = next(
+            (
+                item
+                for item in listing.get("items") or []
+                if item.get("kind") == "file" and item.get("id") == document_id
+            ),
+            None,
+        )
+        if match is None:
+            link = next(
+                (
+                    item
+                    for item in listing.get("items") or []
+                    if item.get("kind") == "link" and item.get("id") == document_id
+                ),
+                None,
+            )
+            if link:
+                return {
+                    "error": "That row is a link, not a file",
+                    "link": link.get("link"),
+                }
+            return {
+                "error": (
+                    f"Document {document_id} not found in this folder. "
+                    "Pass browse_url to look inside a subfolder."
+                )
+            }
+
+        session = _session()
+        resolved_platform = listing["platform_id"]
+        safe_browse = _checked_browse_url(browse_url, course_id, resolved_platform)
+        course = CourseCondensed(
+            session=session,
+            name=str(course_id),
+            teacher="",
+            url="",
+            id=course_id,
+            platform_id=resolved_platform,
+        )
+        folder = FolderItem(
+            session=session,
+            parent=None,
+            course=course,
+            name="(Root)",
+            browse_url=safe_browse,
+        )
+        download_url = None
+        filename = match.get("name") or f"document_{document_id}"
+        for item in folder.items:
+            if getattr(item, "id", None) != document_id:
+                continue
+            link = getattr(item, "link", None)
+            if isinstance(link, str):
+                return {
+                    "error": "That row is a link, not a file",
+                    "link": link,
+                }
+            download_url = getattr(item, "download_url", None)
+            filename = getattr(item, "name", None) or filename
+            break
+        if (
+            not isinstance(download_url, str)
+            or _DOCUMENTS_DOWNLOAD_RE.fullmatch(download_url) is None
+        ):
+            return {"error": "Document has no Documents download path"}
+        parsed = _DOCUMENTS_DOWNLOAD_RE.fullmatch(download_url)
+        assert parsed is not None
+        if (
+            int(parsed.group(1)) != course_id
+            or int(parsed.group(3)) != resolved_platform
+        ):
+            return {"error": "Refusing a download path for a different course"}
+        if int(parsed.group(2)) != document_id:
+            return {"error": "Refusing a download path for a different document"}
+        resp = session.get(download_url)
+        if not getattr(resp, "ok", False):
+            status = getattr(resp, "status_code", "?")
+            return {"error": f"Download failed: HTTP {status}"}
+        saved = _write_download(resp.content, str(filename), save_path)
+        saved.update(
+            {
+                "course_id": course_id,
+                "document_id": document_id,
+                "mime_type": match.get("mime_type") or "",
+            }
+        )
+        return saved
+    except Exception as e:
+        return {"error": f"Failed to download course document: {e!s}"}
+
+
 @mcp.tool()
 def get_results(
     limit: int = 15,
@@ -1253,19 +1508,21 @@ def get_schedule(date_offset: int = 0, includes: str | None = None) -> dict[str,
             (e.g. icon,courses,locations,upload-folders,labels)
 
     Returns:
-        Dictionary with planned elements for the given date.
+        Dictionary with planned elements for the given date. Each element
+        includes ``id`` and ``description`` (empty when the portal omits it)
+        and ``upload_folders`` when the response contains them. Pass
+        ``includes`` with ``upload-folders`` to ask for attachments. Whether
+        that include adds ``uploadFolders`` is not live-verified.
     """
     try:
         target_date = date.today() + timedelta(days=date_offset)
-        elements_list = []
-
-        for element in PlannedElements(
+        elements_list = fetch_calendar(
             _session(),
-            from_date=target_date,
-            till_date=target_date,
-            includes=_csv_or_none(includes),
-        ):
-            elements_list.append(_planned_element_dict(element))
+            target_date,
+            target_date,
+            None,
+            _csv_or_none(includes),
+        )
 
         return {
             "date": target_date.strftime("%Y-%m-%d"),
@@ -1360,7 +1617,8 @@ def get_planned_elements(
         includes: Optional comma-separated expansions (icon,courses,locations,…)
 
     Returns:
-        Dictionary with planned elements including dates, courses, and assignment types.
+        Dictionary with planned elements including id, description, dates,
+        courses, assignment types, and upload folders when the payload has them.
     """
     try:
         start = date.fromisoformat(from_date) if from_date else date.today()
@@ -1369,16 +1627,13 @@ def get_planned_elements(
             if to_date
             else start + timedelta(days=days_ahead)
         )
-        elements_list = []
-
-        for element in PlannedElements(
+        elements_list = fetch_calendar(
             _session(),
-            from_date=start,
-            till_date=end,
-            types=_csv_or_none(types),
-            includes=_csv_or_none(includes),
-        ):
-            elements_list.append(_planned_element_dict(element))
+            start,
+            end,
+            _csv_or_none(types),
+            _csv_or_none(includes),
+        )
 
         return {
             "planned_elements": elements_list,
@@ -1391,6 +1646,241 @@ def get_planned_elements(
 
     except Exception as e:
         return {"error": f"Failed to retrieve planned elements: {e!s}"}
+
+
+def _planner_window(
+    from_date: str | None, to_date: str | None, days_ahead: int
+) -> tuple[date, date]:
+    start = date.fromisoformat(from_date) if from_date else date.today()
+    end = date.fromisoformat(to_date) if to_date else start + timedelta(days=days_ahead)
+    return start, end
+
+
+def _merge_planner_detail(
+    row: dict[str, Any], detail: dict[str, Any] | None
+) -> dict[str, Any]:
+    if not detail:
+        return row
+    merged = dict(row)
+    if not merged.get("description") and detail.get("description"):
+        merged["description"] = detail["description"]
+    if not merged.get("upload_folders") and detail.get("upload_folders"):
+        merged["upload_folders"] = detail["upload_folders"]
+    return merged
+
+
+@mcp.tool()
+def get_planner_attachments(
+    element_id: str,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    days_ahead: int = 34,
+) -> dict[str, Any]:
+    """
+    List upload folders and files attached to one planner item.
+
+    Refetches the calendar with the website include list
+    ``icon,courses,locations,upload-folders,labels`` and returns the matching
+    element's id, description, and upload folders.
+
+    The captured library fixtures do not contain those fields. Key names
+    (``uploadFolders``, ``description``, ``publicInfo``) are inferred, not
+    live-verified. When the calendar row is an assignment and still has no
+    description and no folders, this also tries
+    ``GET /planner/api/v1/planned-assignments/{platformId}/{assignmentId}``.
+    That path is catalogued; its body is not.
+
+    Args:
+        element_id: Planner element UUID from get_schedule or get_planned_elements.
+        from_date: Inclusive start YYYY-MM-DD (default: today).
+        to_date: Inclusive end YYYY-MM-DD (default: from_date + days_ahead).
+        days_ahead: Used when to_date is omitted (default: 34).
+    """
+    try:
+        safe_id = element_id_or_none(element_id)
+        if safe_id is None:
+            return {"error": "Invalid element_id"}
+        start, end = _planner_window(from_date, to_date, days_ahead)
+        session = _session()
+        rows = fetch_calendar(session, start, end, None, PLANNER_ATTACHMENT_INCLUDES)
+        row = next(
+            (
+                item
+                for item in rows
+                if str(item.get("id") or "").lower() == safe_id.lower()
+            ),
+            None,
+        )
+        if row is None:
+            return {
+                "error": (
+                    f"Planner element {safe_id} not found between "
+                    f"{start.isoformat()} and {end.isoformat()}"
+                )
+            }
+
+        detail_status = "not_called"
+        element_type = row.get("type")
+        needs_detail = element_type in ASSIGNMENT_DETAIL_TYPES and (
+            not row.get("description") and not row.get("upload_folders")
+        )
+        platform_id = row.get("platform_id")
+        if needs_detail and isinstance(platform_id, int):
+            detail_status = "unavailable"
+            detail = fetch_assignment_detail(session, platform_id, safe_id)
+            if detail is not None:
+                detail_status = "parsed"
+                row = _merge_planner_detail(row, detail)
+
+        return {
+            "element_id": safe_id,
+            "name": row.get("name") or "",
+            "type": element_type,
+            "description": row.get("description") or "",
+            "upload_folders": row.get("upload_folders") or [],
+            "period": {"from": start.isoformat(), "to": end.isoformat()},
+            "live_verified": False,
+            "detail_fetch": {
+                "path": (
+                    "/planner/api/v1/planned-assignments/{platformId}/{assignmentId}"
+                ),
+                "status": detail_status,
+                "body_verified": False,
+            },
+        }
+    except Exception as e:
+        return {"error": f"Failed to retrieve planner attachments: {e!s}"}
+
+
+@mcp.tool()
+def download_planner_file(
+    element_id: str,
+    file_id: str,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    days_ahead: int = 34,
+    save_path: str | None = None,
+) -> dict[str, Any]:
+    """
+    Download one file from a planner item's upload folders.
+
+    Uses a download URL only when the calendar (or assignment-detail) payload
+    includes one. There is no verified standalone download path for planner
+    files; a payload without a URL returns an error instead of guessing.
+
+    Args:
+        element_id: Planner element UUID.
+        file_id: File id from get_planner_attachments.
+        from_date: Inclusive start YYYY-MM-DD (default: today).
+        to_date: Inclusive end YYYY-MM-DD (default: from_date + days_ahead).
+        days_ahead: Used when to_date is omitted (default: 34).
+        save_path: Optional directory (default: ~/Downloads/smartschool/).
+    """
+    try:
+        safe_id = element_id_or_none(element_id)
+        if safe_id is None:
+            return {"error": "Invalid element_id"}
+        safe_file = file_id.strip()
+        if not safe_file or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", safe_file):
+            return {"error": "Invalid file_id"}
+        start, end = _planner_window(from_date, to_date, days_ahead)
+        session = _session()
+        raw_rows = fetch_calendar_raw(
+            session, start, end, None, PLANNER_ATTACHMENT_INCLUDES
+        )
+        found = file_download(raw_rows, safe_id, safe_file)
+        if found is None:
+            element = next(
+                (
+                    raw
+                    for raw in raw_rows
+                    if str(raw.get("id") or "").lower() == safe_id.lower()
+                ),
+                None,
+            )
+            platform_id = (
+                element.get("platformId") if isinstance(element, dict) else None
+            )
+            element_type = (
+                element.get("plannedElementType") if isinstance(element, dict) else None
+            )
+            if (
+                isinstance(platform_id, int)
+                and not isinstance(platform_id, bool)
+                and element_type in ASSIGNMENT_DETAIL_TYPES
+            ):
+                try:
+                    detail = session.json(
+                        f"/planner/api/v1/planned-assignments/{platform_id}/{safe_id}"
+                    )
+                except Exception:
+                    detail = None
+                if isinstance(detail, dict):
+                    found = file_download(
+                        [{**detail, "id": safe_id}], safe_id, safe_file
+                    )
+        if found is None:
+            return {
+                "error": f"File {safe_file} not found on planner element {safe_id}",
+                "live_verified": False,
+            }
+        target = portal_download_target(session, str(found.get("download_url") or ""))
+        if target is None:
+            return {
+                "error": (
+                    "Planner file has no same-host download URL. "
+                    "The list payload did not include one, and no download "
+                    "path for planner upload files is verified."
+                ),
+                "file_id": safe_file,
+                "name": found.get("name") or "",
+                "live_verified": False,
+            }
+        resp = session.get(target)
+        if not getattr(resp, "ok", False):
+            status = getattr(resp, "status_code", "?")
+            return {"error": f"Download failed: HTTP {status}", "live_verified": False}
+        saved = _write_download(
+            resp.content,
+            str(found.get("name") or "") or f"planner_{safe_file}",
+            save_path,
+        )
+        saved.update(
+            {
+                "element_id": safe_id,
+                "file_id": safe_file,
+                "mime_type": found.get("mime_type") or "",
+                "live_verified": False,
+            }
+        )
+        return saved
+    except Exception as e:
+        return {"error": f"Failed to download planner file: {e!s}"}
+
+
+def _write_download(
+    content: bytes, raw_name: str, save_path: str | None
+) -> dict[str, Any]:
+    from pathlib import Path
+
+    download_dir = (
+        Path(save_path) if save_path else Path.home() / "Downloads" / "smartschool"
+    )
+    download_dir.mkdir(parents=True, exist_ok=True)
+    filename = Path(raw_name).name or "download"
+    file_path = download_dir / filename
+    counter = 1
+    stem = file_path.stem
+    suffix = file_path.suffix
+    while file_path.exists():
+        file_path = download_dir / f"{stem} ({counter}){suffix}"
+        counter += 1
+    file_path.write_bytes(content)
+    return {
+        "name": file_path.name,
+        "saved_to": str(file_path),
+        "bytes_written": len(content),
+    }
 
 
 @mcp.tool()

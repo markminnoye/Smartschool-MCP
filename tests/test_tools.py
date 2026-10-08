@@ -22,6 +22,10 @@ EXPECTED_TOOLS = [
     "get_periods",
     "get_reports",
     "get_planned_elements",
+    "get_planner_attachments",
+    "download_planner_file",
+    "get_course_documents",
+    "download_course_document",
     "get_student_support_links",
     "get_children",
     "switch_child",
@@ -84,11 +88,10 @@ def test_get_messages_returns_error_on_exception() -> None:
     assert "error" in result
 
 
-def test_get_schedule_returns_error_on_exception() -> None:
-    with patch(
-        "smartschool_mcp.server.PlannedElements", side_effect=RuntimeError("503")
-    ):
-        result = srv.get_schedule()
+def test_get_schedule_returns_error_on_exception(mock_session: MagicMock) -> None:
+    mock_session.authenticated_user = {"id": "49_1_2"}
+    mock_session.json.side_effect = RuntimeError("503")
+    result = srv.get_schedule()
     assert isinstance(result, dict)
     assert "error" in result
 
@@ -107,90 +110,328 @@ def test_get_reports_returns_error_on_exception() -> None:
     assert "error" in result[0]
 
 
-def test_get_planned_elements_returns_error_on_exception() -> None:
-    with patch(
-        "smartschool_mcp.server.PlannedElements", side_effect=RuntimeError("oops")
-    ):
-        result = srv.get_planned_elements()
+def test_get_planned_elements_returns_error_on_exception(
+    mock_session: MagicMock,
+) -> None:
+    mock_session.authenticated_user = {"id": "49_1_2"}
+    mock_session.json.side_effect = RuntimeError("oops")
+    result = srv.get_planned_elements()
     assert isinstance(result, dict)
     assert "error" in result
 
 
-def _planner_element_mock() -> MagicMock:
-    period = MagicMock()
-    period.date_time_from.strftime.return_value = "2026-09-17 08:25"
-    period.date_time_to.strftime.return_value = "2026-09-17 09:15"
-    period.whole_day = False
-    course = MagicMock()
-    course.name = "Wiskunde"
-    location = MagicMock()
-    location.title = "A12"
-    user = MagicMock()
-    user.name.starting_with_first_name = "Jan Jansen"
-    organisers = MagicMock()
-    organisers.users = [user]
-    element = MagicMock()
-    element.name = "Wiskunde"
-    element.planned_element_type = "planned-lessons"
-    element.period = period
-    element.color = "#ffcc00"
-    element.courses = [course]
-    element.locations = [location]
-    element.organisers = organisers
-    element.unconfirmed = False
-    element.pinned = False
-    element.assignment_type = None
-    return element
+_ELEMENT_ID = "0a13e756-656a-5053-925e-7aad5db31a87"
 
 
-def test_get_schedule_returns_planner_elements() -> None:
-    element = _planner_element_mock()
-    with patch(
-        "smartschool_mcp.server.PlannedElements", return_value=[element]
-    ) as mock_pe:
-        result = srv.get_schedule(date_offset=0)
+def _planner_raw(**overrides: object) -> dict:
+    raw: dict = {
+        "id": _ELEMENT_ID,
+        "platformId": 49,
+        "name": "Wiskunde",
+        "plannedElementType": "planned-lessons",
+        "period": {
+            "dateTimeFrom": "2026-09-17T08:25:00+02:00",
+            "dateTimeTo": "2026-09-17T09:15:00+02:00",
+            "wholeDay": False,
+        },
+        "color": "#ffcc00",
+        "courses": [{"name": "Wiskunde"}],
+        "locations": [{"title": "A12"}],
+        "organisers": {"users": [{"name": {"startingWithFirstName": "Jan Jansen"}}]},
+        "unconfirmed": False,
+        "pinned": False,
+        "publicInfo": "<p>Neem je boek mee</p>",
+        "uploadFolders": [
+            {
+                "id": "folder-1",
+                "name": "Bijlagen",
+                "files": [
+                    {
+                        "id": "file-1",
+                        "filename": "oefening.pdf",
+                        "mimeType": "application/pdf",
+                        "fileSize": 1200,
+                        "downloadUrl": "/planner/api/v1/files/file-1/download",
+                    }
+                ],
+            }
+        ],
+    }
+    raw.update(overrides)
+    return raw
+
+
+def test_get_schedule_returns_planner_elements(mock_session: MagicMock) -> None:
+    mock_session.authenticated_user = {"id": "49_1_2"}
+    mock_session.json.return_value = [_planner_raw()]
+    result = srv.get_schedule(date_offset=0)
 
     assert result["total"] == 1
     assert "lessons" not in result
     item = result["elements"][0]
+    assert item["id"] == _ELEMENT_ID
     assert item["type"] == "planned-lessons"
     assert item["name"] == "Wiskunde"
+    assert item["description"] == "Neem je boek mee"
     assert item["courses"] == ["Wiskunde"]
     assert item["locations"] == ["A12"]
     assert item["organisers"] == ["Jan Jansen"]
-    kwargs = mock_pe.call_args.kwargs
-    assert kwargs.get("types") is None
-    assert kwargs["from_date"] == kwargs["till_date"]
+    assert item["from"] == "2026-09-17 08:25"
+    assert item["upload_folders"][0]["files"][0]["has_download_url"] is True
+    assert "download_url" not in item["upload_folders"][0]["files"][0]
+    args, kwargs = mock_session.json.call_args
+    assert kwargs["data"]["from"] == kwargs["data"]["to"]
+    assert "types" not in kwargs["data"]
+    assert "includes" not in kwargs["data"]
+    assert "/planner/api/v1/planned-elements/user/49_1_2" in args[0]
 
 
-def test_get_planned_elements_omits_types_by_default() -> None:
-    element = _planner_element_mock()
-    with patch(
-        "smartschool_mcp.server.PlannedElements", return_value=[element]
-    ) as mock_pe:
-        result = srv.get_planned_elements(days_ahead=7)
+def test_get_planned_elements_omits_types_by_default(mock_session: MagicMock) -> None:
+    mock_session.authenticated_user = {"id": "49_1_2"}
+    mock_session.json.return_value = [_planner_raw()]
+    result = srv.get_planned_elements(days_ahead=7)
 
     assert result["total"] == 1
     assert result["planned_elements"][0]["type"] == "planned-lessons"
-    kwargs = mock_pe.call_args.kwargs
-    assert kwargs.get("types") is None
-    assert kwargs.get("includes") is None
+    assert result["planned_elements"][0]["id"] == _ELEMENT_ID
+    data = mock_session.json.call_args.kwargs["data"]
+    assert "types" not in data
+    assert "includes" not in data
 
 
-def test_get_planned_elements_passes_types_and_includes() -> None:
-    with patch("smartschool_mcp.server.PlannedElements", return_value=[]) as mock_pe:
-        srv.get_planned_elements(
-            from_date="2026-09-17",
-            to_date="2026-09-21",
-            types="planned-assignments,planned-to-dos",
-            includes="icon,courses",
+def test_get_planned_elements_passes_types_and_includes(
+    mock_session: MagicMock,
+) -> None:
+    mock_session.authenticated_user = {"id": "49_1_2"}
+    mock_session.json.return_value = []
+    srv.get_planned_elements(
+        from_date="2026-09-17",
+        to_date="2026-09-21",
+        types="planned-assignments,planned-to-dos",
+        includes="icon,courses",
+    )
+
+    data = mock_session.json.call_args.kwargs["data"]
+    assert data["types"] == "planned-assignments,planned-to-dos"
+    assert data["includes"] == "icon,courses"
+    assert data["from"] == "2026-09-17"
+    assert data["to"] == "2026-09-21"
+
+
+def test_get_planner_attachments_lists_files(mock_session: MagicMock) -> None:
+    mock_session.authenticated_user = {"id": "49_1_2"}
+    mock_session.json.return_value = [_planner_raw()]
+    result = srv.get_planner_attachments(
+        _ELEMENT_ID, from_date="2026-09-17", to_date="2026-09-17"
+    )
+
+    assert result["element_id"] == _ELEMENT_ID
+    assert result["description"] == "Neem je boek mee"
+    assert result["upload_folders"][0]["name"] == "Bijlagen"
+    assert result["live_verified"] is False
+    assert result["detail_fetch"]["status"] == "not_called"
+    assert (
+        mock_session.json.call_args.kwargs["data"]["includes"]
+        == "icon,courses,locations,upload-folders,labels"
+    )
+
+
+def test_get_planner_attachments_rejects_bad_id() -> None:
+    result = srv.get_planner_attachments("../etc")
+    assert result == {"error": "Invalid element_id"}
+
+
+def test_get_planner_attachments_merges_unverified_assignment_detail(
+    mock_session: MagicMock,
+) -> None:
+    mock_session.authenticated_user = {"id": "49_1_2"}
+    calendar = _planner_raw(
+        plannedElementType="planned-assignments",
+        publicInfo="",
+        uploadFolders=[],
+    )
+    detail = _planner_raw(description="Hoofdstuk 3", publicInfo="")
+
+    def fake_json(path: str, **kwargs: object) -> object:
+        if path.startswith("/planner/api/v1/planned-assignments/"):
+            return detail
+        return [calendar]
+
+    mock_session.json.side_effect = fake_json
+    result = srv.get_planner_attachments(
+        _ELEMENT_ID, from_date="2026-09-17", to_date="2026-09-17"
+    )
+    assert result["description"] == "Hoofdstuk 3"
+    assert result["detail_fetch"]["status"] == "parsed"
+    assert result["detail_fetch"]["body_verified"] is False
+
+
+def test_download_planner_file_writes_bytes(mock_session: MagicMock, tmp_path) -> None:
+    mock_session.authenticated_user = {"id": "49_1_2"}
+    mock_session.json.return_value = [_planner_raw()]
+    mock_session.get.return_value = MagicMock(
+        ok=True, content=b"pdf-bytes", status_code=200
+    )
+    result = srv.download_planner_file(
+        _ELEMENT_ID,
+        "file-1",
+        from_date="2026-09-17",
+        to_date="2026-09-17",
+        save_path=str(tmp_path),
+    )
+    assert result["bytes_written"] == 9
+    assert result["live_verified"] is False
+    assert (tmp_path / "oefening.pdf").read_bytes() == b"pdf-bytes"
+    assert mock_session.get.call_args.args[0] == "/planner/api/v1/files/file-1/download"
+
+
+def test_download_planner_file_refuses_foreign_url(mock_session: MagicMock) -> None:
+    raw = _planner_raw()
+    raw["uploadFolders"][0]["files"][0]["downloadUrl"] = "https://evil.example/file"
+    mock_session.authenticated_user = {"id": "49_1_2"}
+    mock_session.create_url.return_value = "https://school.smartschool.be/"
+    mock_session.json.return_value = [raw]
+    result = srv.download_planner_file(
+        _ELEMENT_ID, "file-1", from_date="2026-09-17", to_date="2026-09-17"
+    )
+    assert "no same-host download URL" in result["error"]
+    mock_session.get.assert_not_called()
+
+
+def test_download_planner_file_refuses_missing_url(mock_session: MagicMock) -> None:
+    raw = _planner_raw()
+    del raw["uploadFolders"][0]["files"][0]["downloadUrl"]
+    mock_session.authenticated_user = {"id": "49_1_2"}
+    mock_session.json.return_value = [raw]
+    result = srv.download_planner_file(
+        _ELEMENT_ID, "file-1", from_date="2026-09-17", to_date="2026-09-17"
+    )
+    assert "no same-host download URL" in result["error"]
+    assert result["live_verified"] is False
+    mock_session.get.assert_not_called()
+
+
+def test_get_planner_attachments_returns_error_on_exception(
+    mock_session: MagicMock,
+) -> None:
+    mock_session.authenticated_user = {"id": "49_1_2"}
+    mock_session.json.side_effect = RuntimeError("offline")
+    result = srv.get_planner_attachments(_ELEMENT_ID)
+    assert "error" in result
+
+
+def test_download_planner_file_returns_error_on_exception(
+    mock_session: MagicMock,
+) -> None:
+    mock_session.authenticated_user = {"id": "49_1_2"}
+    mock_session.json.side_effect = RuntimeError("offline")
+    result = srv.download_planner_file(_ELEMENT_ID, "file-1")
+    assert "error" in result
+
+
+def test_get_course_documents_lists_topnav_courses(mock_session: MagicMock) -> None:
+    course = MagicMock()
+    course.id = 4496
+    course.platform_id = 49
+    course.name = "Wiskunde"
+    course.teacher = "Jansen"
+    with patch("smartschool_mcp.server.TopNavCourses", return_value=[course]):
+        result = srv.get_course_documents()
+    assert result["total"] == 1
+    assert result["courses"][0]["id"] == 4496
+    assert "get_courses" in result["note"]
+    mock_session.json.assert_not_called()
+
+
+def test_get_course_documents_lists_folder(mock_session: MagicMock) -> None:
+    folder_row = MagicMock()
+    folder_row.name = "H1"
+    folder_row.link = None
+    folder_row.browse_url = "/Documents/Index/Index/courseID/4496/parentID/10/ssID/49"
+    folder_row.download_url = None
+    file_row = MagicMock()
+    file_row.name = "les.pdf"
+    file_row.link = None
+    file_row.browse_url = None
+    file_row.download_url = (
+        "/Documents/Download/Index/htm/0/courseID/4496/docID/8/ssID/49"
+    )
+    file_row.id = 8
+    file_row.mime_type = "pdf"
+    file_row.size_kb = 12.5
+    file_row.last_modified = None
+    file_row.view_url = None
+    folder = MagicMock()
+    folder.browse_url = "/Documents/Index/Index/courseID/4496/ssID/49"
+    folder.items = [folder_row, file_row]
+    with patch("smartschool_mcp.server.FolderItem", return_value=folder):
+        result = srv.get_course_documents(course_id=4496, platform_id=49)
+    assert result["total"] == 2
+    assert result["items"][0]["kind"] == "folder"
+    assert result["items"][1] == {
+        "kind": "file",
+        "id": 8,
+        "name": "les.pdf",
+        "mime_type": "pdf",
+        "size_kb": 12.5,
+        "last_modified": None,
+        "view_url": None,
+    }
+
+
+def test_get_course_documents_rejects_foreign_browse_url() -> None:
+    result = srv.get_course_documents(
+        course_id=4496,
+        platform_id=49,
+        browse_url="/Documents/Index/Index/courseID/1/ssID/2",
+    )
+    assert "error" in result
+
+
+def test_download_course_document_writes_file(
+    mock_session: MagicMock, tmp_path
+) -> None:
+    file_row = MagicMock()
+    file_row.name = "les.pdf"
+    file_row.link = None
+    file_row.browse_url = None
+    file_row.download_url = (
+        "/Documents/Download/Index/htm/0/courseID/4496/docID/8/ssID/49"
+    )
+    file_row.id = 8
+    file_row.mime_type = "pdf"
+    file_row.size_kb = 1
+    file_row.last_modified = None
+    file_row.view_url = None
+    folder = MagicMock()
+    folder.browse_url = "/Documents/Index/Index/courseID/4496/ssID/49"
+    folder.items = [file_row]
+    mock_session.get.return_value = MagicMock(ok=True, content=b"abc", status_code=200)
+    with patch("smartschool_mcp.server.FolderItem", return_value=folder):
+        result = srv.download_course_document(
+            course_id=4496, document_id=8, platform_id=49, save_path=str(tmp_path)
         )
+    assert result["bytes_written"] == 3
+    assert (tmp_path / "les.pdf").read_bytes() == b"abc"
 
-    kwargs = mock_pe.call_args.kwargs
-    assert kwargs["types"] == "planned-assignments,planned-to-dos"
-    assert kwargs["includes"] == "icon,courses"
-    assert kwargs["from_date"].isoformat() == "2026-09-17"
-    assert kwargs["till_date"].isoformat() == "2026-09-21"
+
+def test_get_course_documents_returns_error_on_exception(
+    mock_session: MagicMock,
+) -> None:
+    mock_session.authenticated_user = {"id": "1"}
+    with patch(
+        "smartschool_mcp.server.TopNavCourses", side_effect=RuntimeError("nope")
+    ):
+        result = srv.get_course_documents()
+    assert "error" in result
+
+
+def test_download_course_document_returns_error_on_exception() -> None:
+    with patch(
+        "smartschool_mcp.server.TopNavCourses", side_effect=RuntimeError("nope")
+    ):
+        result = srv.download_course_document(course_id=1, document_id=2, platform_id=3)
+    assert "error" in result
 
 
 def test_get_student_support_links_returns_error_on_exception() -> None:

@@ -130,29 +130,25 @@ def test_login_returns_public_user_fields(monkeypatch: pytest.MonkeyPatch) -> No
 def test_schedule_one_day_passes_planner_query(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_elements(_session: object, **kwargs: object) -> list[object]:
-        captured.update(kwargs)
-        period = SimpleNamespace(
-            date_time_from=SimpleNamespace(strftime=lambda _fmt: "2026-09-22 08:25"),
-            date_time_to=SimpleNamespace(strftime=lambda _fmt: "2026-09-22 09:15"),
-            whole_day=False,
-        )
+    def fake_calendar(
+        _session: object, start: date, end: date, types: object, includes: object
+    ) -> list[dict]:
+        captured["start"] = start
+        captured["end"] = end
+        captured["types"] = types
+        captured["includes"] = includes
         return [
-            SimpleNamespace(
-                name="Wiskunde",
-                planned_element_type="planned-lessons",
-                period=period,
-                assignment_type=None,
-                courses=[SimpleNamespace(name="Wiskunde")],
-                locations=[SimpleNamespace(title="B1.02")],
-                organisers=None,
-                unconfirmed=False,
-                pinned=False,
-                color="#fff",
-            )
+            {
+                "id": "0a13e756-656a-5053-925e-7aad5db31a87",
+                "name": "Wiskunde",
+                "description": "",
+                "type": "planned-lessons",
+                "locations": ["B1.02"],
+                "upload_folders": [],
+            }
         ]
 
-    monkeypatch.setattr(schedule, "PlannedElements", fake_elements)
+    monkeypatch.setattr(schedule, "fetch_calendar", fake_calendar)
     monkeypatch.setattr(schedule, "open_sessions", lambda: [object()])
 
     payload = schedule.build(["--date", "2026-09-22", "--types", " planned-lessons "])
@@ -160,8 +156,8 @@ def test_schedule_one_day_passes_planner_query(monkeypatch: pytest.MonkeyPatch) 
     assert payload["total"] == 1
     assert payload["elements"][0]["name"] == "Wiskunde"
     assert payload["elements"][0]["locations"] == ["B1.02"]
-    assert captured["from_date"] == date(2026, 9, 22)
-    assert captured["till_date"] == date(2026, 9, 22)
+    assert captured["start"] == date(2026, 9, 22)
+    assert captured["end"] == date(2026, 9, 22)
     assert captured["types"] == "planned-lessons"
     assert captured["includes"] is None
 
@@ -309,6 +305,9 @@ def test_planned_element_empty_period() -> None:
     row = planned_element(SimpleNamespace(name="", courses=None, locations=None))
     assert row["from"] is None
     assert row["courses"] == []
+    assert row["id"] is None
+    assert row["description"] == ""
+    assert row["upload_folders"] == []
 
 
 def test_plugin_manifest_has_no_mcp_server() -> None:

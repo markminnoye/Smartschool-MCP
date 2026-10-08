@@ -2,7 +2,9 @@
 """Agenda: Planner calendar for one day or a date range.
 
 Mirrors ``get_schedule`` (one day, no types filter) and ``get_planned_elements``
-(optional range, types, includes). Does not call the removed Schoolagenda XML.
+(optional range, types, includes). Reads the calendar JSON directly so element
+id, description, and upload folders are not dropped by ``PlannedElement``.
+Does not call the removed Schoolagenda XML.
 """
 
 from __future__ import annotations
@@ -11,17 +13,15 @@ import argparse
 from datetime import date, timedelta
 from typing import Any
 
-from smartschool import PlannedElements
-
 from _common import (
     add_profile_argument,
     combine_profiles,
     csv_or_none,
     main,
     open_sessions,
-    planned_element,
     use_profile_argument,
 )
+from smartschool_mcp.planner_fields import fetch_calendar
 
 
 def _parse_date(value: str) -> date:
@@ -112,16 +112,13 @@ def build(argv: list[str] | None = None) -> dict[str, Any]:
     start, end = resolve_range(args)
 
     def fetch(session: object) -> dict[str, Any]:
-        elements = [
-            planned_element(element)
-            for element in PlannedElements(
-                session,  # type: ignore[arg-type]
-                from_date=start,
-                till_date=end,
-                types=csv_or_none(args.types),
-                includes=csv_or_none(args.includes),
-            )
-        ]
+        elements = fetch_calendar(
+            session,
+            start,
+            end,
+            csv_or_none(args.types),
+            csv_or_none(args.includes),
+        )
         payload: dict[str, Any] = {
             "period": {"from": start.isoformat(), "to": end.isoformat()},
             "elements": elements,

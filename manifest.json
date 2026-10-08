@@ -41,6 +41,14 @@
       "description": "Vakken met leerkrachten"
     },
     {
+      "name": "get_course_documents",
+      "description": "Documenten bij een vak"
+    },
+    {
+      "name": "download_course_document",
+      "description": "Download een document bij een vak"
+    },
+    {
       "name": "get_results",
       "description": "Punten"
     },
@@ -67,6 +75,14 @@
     {
       "name": "get_planned_elements",
       "description": "Planner over meerdere dagen"
+    },
+    {
+      "name": "get_planner_attachments",
+      "description": "Bijlagen bij een planneritem"
+    },
+    {
+      "name": "download_planner_file",
+      "description": "Download een plannerbijlage"
     },
     {
       "name": "get_student_support_links",

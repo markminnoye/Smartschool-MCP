@@ -19,13 +19,17 @@ Connect Claude (and other MCP clients) to your Smartschool account — ask about
 | Tool | What it does |
 |------|-------------|
 | `get_courses` | List enrolled courses with teacher info |
+| `get_course_documents` | Documenten per course (TopNav id) or the course list that holds those ids |
+| `download_course_document` | Download one file from a course Documenten folder |
 | `get_results` | Grades with optional filtering, pagination, and statistics |
 | `get_future_tasks` | Upcoming assignments organised by date |
 | `get_messages` | Inbox/sent/trash with search, sender filter, and body retrieval |
 | `get_schedule` | Day Planner calendar by offset (0 = today, 1 = tomorrow, …) |
 | `get_periods` | Academic terms for the current school year |
 | `get_reports` | Available report cards |
-| `get_planned_elements` | Planner calendar for a date range (optional `types` / `includes`) |
+| `get_planned_elements` | Planner calendar for a date range (optional `types` / `includes`), including element id, description, and upload folders when the payload has them |
+| `get_planner_attachments` | Upload folders and files for one planner item (`includes=upload-folders`; live JSON shape not verified) |
+| `download_planner_file` | Download a planner file when the payload includes a same-host URL |
 | `get_student_support_links` | School support resources and links |
 | `get_children` | Linked children on Mijn kinderen (parent/co-account) |
 | `switch_child` | Switch the session to another linked child |

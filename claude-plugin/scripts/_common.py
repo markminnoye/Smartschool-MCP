@@ -533,15 +533,31 @@ def organiser_names(element: object) -> list[str]:
 
 
 def planned_element(element: object) -> dict[str, Any]:
-    """Same fields the MCP ``get_schedule`` tool returns for one planner row."""
+    """Same fields the MCP ``get_schedule`` tool returns for one planner row.
+
+    Schedule scripts pass raw calendar JSON through
+    ``smartschool_mcp.planner_fields.fetch_calendar`` instead. This helper
+    remains for library objects that already parsed ``id`` / ``description`` /
+    ``upload_folders``.
+    """
     period = getattr(element, "period", None)
     start = getattr(period, "date_time_from", None) if period else None
     end = getattr(period, "date_time_to", None) if period else None
     assignment_type = getattr(element, "assignment_type", None)
     courses = getattr(element, "courses", None) or []
     locations = getattr(element, "locations", None) or []
+    description = getattr(element, "description", None)
+    if not isinstance(description, str) or not description.strip():
+        description = getattr(element, "public_info", None)
+    if not isinstance(description, str):
+        description = ""
+    element_id = getattr(element, "id", None)
+    platform_id = getattr(element, "platform_id", None)
     return {
+        "id": element_id if isinstance(element_id, str) else None,
+        "platform_id": platform_id if isinstance(platform_id, int) else None,
         "name": getattr(element, "name", "") or "",
+        "description": description.strip(),
         "type": getattr(element, "planned_element_type", None),
         "from": start.strftime("%Y-%m-%d %H:%M") if start else None,
         "to": end.strftime("%Y-%m-%d %H:%M") if end else None,
@@ -555,7 +571,40 @@ def planned_element(element: object) -> dict[str, Any]:
         "assignment_type": (
             assignment_type.name if assignment_type is not None else None
         ),
+        "upload_folders": _public_upload_folders(element),
     }
+
+
+def _public_upload_folders(element: object) -> list[dict[str, Any]]:
+    folders = getattr(element, "upload_folders", None)
+    if not isinstance(folders, list):
+        return []
+    public: list[dict[str, Any]] = []
+    for folder in folders:
+        files = getattr(folder, "files", None)
+        file_rows: list[dict[str, Any]] = []
+        if isinstance(files, list):
+            for item in files:
+                download = getattr(item, "download_url", None)
+                size = getattr(item, "size", None)
+                file_rows.append(
+                    {
+                        "id": str(getattr(item, "id", "") or ""),
+                        "name": str(getattr(item, "name", "") or ""),
+                        "mime_type": str(getattr(item, "mime_type", "") or ""),
+                        "size": size if isinstance(size, int) else None,
+                        "has_download_url": isinstance(download, str)
+                        and bool(download),
+                    }
+                )
+        public.append(
+            {
+                "id": str(getattr(folder, "id", "") or ""),
+                "name": str(getattr(folder, "name", "") or ""),
+                "files": file_rows,
+            }
+        )
+    return public
 
 
 def _display_name(value: object) -> str | None:

@@ -1,0 +1,435 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 4e46c2f..e350554 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,4 +1,6 @@
+ ## Unreleased
++- feat(planner): keep `description`, `publicInfo`, and `uploadFolders` on `PlannedElement` when the calendar JSON sends them (`prepare_planned_element`). Captured fixtures do not include those keys; the live `includes=upload-folders` body is unverified.
++- feat(planner): `load_planned_assignment` for `GET /planner/api/v1/planned-assignments/{platformId}/{assignmentId}` (path catalogued, response body unverified)
+ - feat(planner): `PlannedElements` matches the website calendar GET by default (omit `types`); optional `types` and `includes`
+ - feat(planner): `PinnedPlannedElements` for `GET /planner/api/v1/planned-elements/pinned`
+ - fix(planner): `ApplicableAssignmentTypes` uses `applicable-assignment-types` (website spelling)
+diff --git a/docs/planner.md b/docs/planner.md
+index b878a71..bb942e2 100644
+--- a/docs/planner.md
++++ b/docs/planner.md
+@@ -52,6 +52,8 @@ sidebar = PlannedElements(
+ )
+ ```
+ 
++`PlannedElement.id` is always parsed. `description`, `public_info`, and `upload_folders` are kept when the JSON contains them (`description` / `publicInfo` / `descr` / `content`, and `uploadFolders`). Captured calendar fixtures have none of those keys. Whether `includes=upload-folders` actually adds `uploadFolders` has not been checked against a live login. Unknown shapes are dropped instead of failing the calendar parse. `load_planned_assignment(session, platform_id, assignment_id)` calls the catalogued assignment-detail GET; its response body is also unverified.
++
+ ### Element Types
+ 
+ The `plannedElementType` field indicates the type. Values seen on the wire include:
+diff --git a/src/smartschool/__init__.py b/src/smartschool/__init__.py
+index 55644b7..14ece06 100644
+--- a/src/smartschool/__init__.py
++++ b/src/smartschool/__init__.py
+@@ -93,7 +93,7 @@ from ._objects import (
+     UserSeeProperties,
+ )
+ from ._periods import Periods
+-from ._planner import ApplicableAssignmentTypes, PinnedPlannedElements, PlannedElements
++from ._planner import ApplicableAssignmentTypes, PinnedPlannedElements, PlannedElements, load_planned_assignment, prepare_planned_element
+ from ._reports import Report, Reports
+ from ._results import Result, Results
+ from ._session import Smartschool
+@@ -212,9 +212,11 @@ __all__ = [
+     "create_filesystem_safe_path",
+     "fill_form",
+     "get_all_values_from_form",
++    "load_planned_assignment",
+     "natural_sort",
+     "parse_mime_type",
+     "parse_size",
++    "prepare_planned_element",
+     "save",
+     "send_email",
+     "xml_to_dict",
+diff --git a/src/smartschool/_objects.py b/src/smartschool/_objects.py
+index 3b875c8..51ef8ad 100644
+--- a/src/smartschool/_objects.py
++++ b/src/smartschool/_objects.py
+@@ -581,6 +581,33 @@ class PlannedElementAssignmentType:
+     weight: int
+ 
+ 
++@dataclass(config=_config)
++class PlannerUploadFile:
++    """
++    One file inside a planner upload folder.
++
++    Field names follow the camelCase keys the planner JSON uses elsewhere.
++    The live ``includes=upload-folders`` body is not in the captured fixtures,
++    so every field is optional and unknown sibling keys are ignored.
++    """
++
++    id: String = ""
++    name: String = ""
++    mime_type: String = ""
++    download_url: String = ""
++    revision_id: String = ""
++    size: int | None = None
++
++
++@dataclass(config=_config)
++class PlannerUploadFolder:
++    """A folder of files attached to a planner item (``uploadFolders``)."""
++
++    id: String = ""
++    name: String = ""
++    files: list[PlannerUploadFile] = Field(default_factory=list)
++
++
+ @dataclass(config=_config)
+ class PlannedElement:  # pylint: disable=too-many-instance-attributes  # mirrors the API payload
+     id: UUID
+@@ -603,6 +630,11 @@ class PlannedElement:  # pylint: disable=too-many-instance-attributes  # mirrors
+     assignment_type: PlannedElementAssignmentType | None = None
+     resolved_status: String = ""
+     online_session: String | None = None
++    # Not present on the captured calendar fixtures. Kept when the portal sends
++    # them (sidebar ``includes`` asks for ``upload-folders``). See prepare_planned_element.
++    description: String = ""
++    public_info: String = ""
++    upload_folders: list[PlannerUploadFolder] = Field(default_factory=list)
+ 
+ 
+ @dataclass(config=_config)
+diff --git a/src/smartschool/_planner.py b/src/smartschool/_planner.py
+index 5fd154b..c57f542 100644
+--- a/src/smartschool/_planner.py
++++ b/src/smartschool/_planner.py
+@@ -13,7 +13,15 @@ if TYPE_CHECKING:
+     from collections.abc import Iterator, Sequence
+     from datetime import date
+ 
+-__all__ = ["ApplicableAssignmentTypes", "PinnedPlannedElements", "PlannedElements"]
++    from ._session import Smartschool
++
++__all__ = [
++    "ApplicableAssignmentTypes",
++    "PinnedPlannedElements",
++    "PlannedElements",
++    "load_planned_assignment",
++    "prepare_planned_element",
++]
+ 
+ # Types observed on the unfiltered calendar GET (and sidebar filters).
+ # The model is `PlannedElement.planned_element_type`; this is documentation, not a validator.
+@@ -41,6 +49,196 @@ def _csv_query_value(value: str | Sequence[str] | None) -> str | None:
+     return joined or None
+ 
+ 
++def _as_text(value: object) -> str:
++    if isinstance(value, str):
++        return value.strip()
++    return ""
++
++
++def _as_id(value: object) -> str:
++    if value is None or isinstance(value, bool):
++        return ""
++    if isinstance(value, (str, int)):
++        return str(value).strip()
++    return ""
++
++
++def _as_size(value: object) -> int | None:
++    if isinstance(value, bool) or value is None:
++        return None
++    if isinstance(value, int):
++        return value
++    if isinstance(value, str) and value.strip().isdigit():
++        return int(value.strip())
++    return None
++
++
++def _first_text(data: dict, *keys: str) -> str:
++    for key in keys:
++        text = _as_text(data.get(key))
++        if text:
++            return text
++    return ""
++
++
++def _first_list(data: dict, *keys: str) -> list | None:
++    for key in keys:
++        value = data.get(key)
++        if isinstance(value, list):
++            return value
++    return None
++
++
++def _normalize_upload_file(raw: dict) -> dict:
++    revision = raw.get("currentRevision") if isinstance(raw.get("currentRevision"), dict) else {}
++    links = raw.get("links") if isinstance(raw.get("links"), dict) else {}
++    download = _first_text(raw, "downloadUrl", "downloadLink", "download_url", "href", "url")
++    if not download:
++        download = _first_text(links, "download", "downloadUrl", "href")
++    mime = _first_text(raw, "mimeType", "mime", "contentType") or _first_text(revision, "mimeType", "mime")
++    size = raw.get("size", raw.get("fileSize", revision.get("fileSize")))
++    revision_id = raw.get("currentRevisionId") or revision.get("id") or raw.get("revisionId")
++    return {
++        "id": _as_id(raw.get("id", raw.get("fileId"))),
++        "name": _first_text(raw, "name", "filename", "fileName", "title"),
++        "mimeType": mime,
++        "size": _as_size(size),
++        "downloadUrl": download,
++        "revisionId": _as_id(revision_id),
++    }
++
++
++def _looks_like_file(raw: dict) -> bool:
++    if _first_list(raw, "files", "uploads", "items", "attachments") is not None:
++        return False
++    if _first_text(raw, "filename", "fileName", "downloadUrl", "downloadLink", "download_url", "href", "url", "mimeType", "mime", "contentType"):
++        return True
++    return bool(raw.get("fileId") or raw.get("currentRevision") or raw.get("currentRevisionId"))
++
++
++def _coerce_folder_list(value: object) -> list:
++    if isinstance(value, list):
++        return value
++    if not isinstance(value, dict):
++        return []
++    nested = _first_list(value, "folders", "uploadFolders", "items", "data", "files", "uploads")
++    if nested is not None and _first_list(value, "files", "uploads", "items", "attachments") is not None and "id" in value:
++        return [value]
++    if nested is not None:
++        return nested
++    return [value]
++
++
++def _normalize_upload_folders(value: object) -> list[dict]:
++    """Map an unverified upload-folder payload onto PlannerUploadFolder dicts."""
++    folders: list[dict] = []
++    loose_files: list[dict] = []
++    for raw in _coerce_folder_list(value):
++        if not isinstance(raw, dict):
++            continue
++        file_list = _first_list(raw, "files", "uploads", "items", "attachments")
++        if file_list is None:
++            if _looks_like_file(raw):
++                loose_files.append(_normalize_upload_file(raw))
++            elif _as_id(raw.get("id")):
++                folders.append(
++                    {
++                        "id": _as_id(raw.get("id")),
++                        "name": _first_text(raw, "name", "title"),
++                        "files": [],
++                    }
++                )
++            continue
++        folders.append(
++            {
++                "id": _as_id(raw.get("id")),
++                "name": _first_text(raw, "name", "title"),
++                "files": [_normalize_upload_file(item) for item in (file_list or []) if isinstance(item, dict)],
++            }
++        )
++    if loose_files:
++        folders.append({"id": "", "name": "", "files": loose_files})
++    return folders
++
++
++def prepare_planned_element(payload: dict) -> dict:
++    """
++    Copy a planner JSON object and keep description plus upload folders.
++
++    ``PlannedElement`` ignores unknown keys. Captured calendar fixtures have
++    neither ``description`` nor ``uploadFolders``. The website asks for
++    ``includes=upload-folders``; this keeps those keys when a live response
++    sends them, under several likely names. A shape we do not understand
++    becomes an empty folder list instead of failing the whole calendar parse.
++
++    The exact live key names are not verified against a logged-in portal.
++    """
++    if not isinstance(payload, dict):
++        return {}
++    data = dict(payload)
++
++    public_info = data.get("publicInfo")
++    if isinstance(public_info, str) and public_info.strip():
++        data["publicInfo"] = public_info.strip()
++    else:
++        data.pop("publicInfo", None)
++        public_info = ""
++
++    description = data.get("description")
++    if not isinstance(description, str) or not description.strip():
++        description = public_info or ""
++        if not description:
++            for key in ("descr", "content", "info", "remarks"):
++                candidate = data.get(key)
++                if isinstance(candidate, str) and candidate.strip():
++                    description = candidate.strip()
++                    break
++    else:
++        description = description.strip()
++
++    if description:
++        data["description"] = description
++    else:
++        data.pop("description", None)
++
++    raw_folders = None
++    for key in ("uploadFolders", "upload_folders", "attachments"):
++        if key in data:
++            raw_folders = data.get(key)
++            break
++    data.pop("uploadFolders", None)
++    data.pop("upload_folders", None)
++    # ``attachments`` is not a PlannedElement field. Drop it so a non-list
++    # value cannot be confused with a future required field, and so a list of
++    # files is re-attached only via uploadFolders.
++    data.pop("attachments", None)
++    if raw_folders is not None:
++        data["uploadFolders"] = _normalize_upload_folders(raw_folders)
++    return data
++
++
++def load_planned_assignment(session: Smartschool, platform_id: int, assignment_id: str) -> PlannedElement | None:
++    """
++    GET ``/planner/api/v1/planned-assignments/{platformId}/{assignmentId}``.
++
++    The path is in the portal catalog (assignment detail opened from Planner).
++    No captured fixture stores the response body, so a missing route or a
++    payload that is not one planned element returns None.
++    """
++    path = f"/planner/api/v1/planned-assignments/{platform_id}/{assignment_id}"
++    try:
++        payload = session.json(path)
++    except Exception:
++        # Path is catalogued; the body and error page are not in the fixtures.
++        return None
++    if not isinstance(payload, dict):
++        return None
++    try:
++        return PlannedElement(**prepare_planned_element(payload))
++    except Exception:
++        return None
++
++
+ def _planner_query(*, from_date: date, till_date: date, types: str | Sequence[str] | None, includes: str | Sequence[str] | None) -> dict[str, str]:
+     data = {"from": from_date.isoformat(), "to": till_date.isoformat()}
+     types_csv = _csv_query_value(types)
+@@ -85,7 +283,7 @@ class PlannedElements(SessionMixin, Iterable[PlannedElement]):
+             data=_planner_query(from_date=self.from_date, till_date=self.till_date, types=self.types, includes=self.includes),
+         )
+         for element in payload:
+-            yield PlannedElement(**element)
++            yield PlannedElement(**prepare_planned_element(element))
+ 
+ 
+ @dataclass
+@@ -99,4 +297,4 @@ class PinnedPlannedElements(SessionMixin, Iterable[PlannedElement]):
+         kwargs = {"data": {"includes": includes_csv}} if includes_csv else {}
+         payload = self.session.json("/planner/api/v1/planned-elements/pinned", **kwargs)
+         for element in payload:
+-            yield PlannedElement(**element)
++            yield PlannedElement(**prepare_planned_element(element))
+diff --git a/tests/planner_tests.py b/tests/planner_tests.py
+index dceffb1..8d7c40f 100644
+--- a/tests/planner_tests.py
++++ b/tests/planner_tests.py
+@@ -1,12 +1,21 @@
+ import json
+ from datetime import date
+ from pathlib import Path
++from unittest.mock import MagicMock
+ from urllib.parse import parse_qs, urlparse
+ 
+ import pytest
+ import time_machine
+ 
+-from smartschool import ApplicableAssignmentTypes, PinnedPlannedElements, PlannedElement, PlannedElements, Smartschool
++from smartschool import (
++    ApplicableAssignmentTypes,
++    PinnedPlannedElements,
++    PlannedElement,
++    PlannedElements,
++    Smartschool,
++    load_planned_assignment,
++    prepare_planned_element,
++)
+ 
+ 
+ def _query(requests_mock) -> dict[str, list[str]]:
+@@ -84,6 +93,75 @@ def test_applicable_assignment_types(session: Smartschool):
+     assert obj.weight == pytest.approx(1.0)
+ 
+ 
++def test_prepare_planned_element_keeps_description_and_upload_folders():
++    fixture = Path(__file__).parent / "requests/get/planner/api/v1/planned-elements/user/49_10880_2/1b58e50a13c1.json"
++    payload = json.loads(fixture.read_text(encoding="utf8"))[0]
++    payload["publicInfo"] = "<p>Lees bladzijde 12</p>"
++    payload["uploadFolders"] = [
++        {
++            "id": "folder-1",
++            "name": "Bijlagen",
++            "files": [
++                {
++                    "id": "file-1",
++                    "filename": "oefening.pdf",
++                    "mimeType": "application/pdf",
++                    "fileSize": 1200,
++                    "downloadUrl": "/planner/api/v1/files/file-1/download",
++                }
++            ],
++        }
++    ]
++    payload["icon"] = {"name": "not-a-string"}
++
++    element = PlannedElement(**prepare_planned_element(payload))
++
++    assert element.description == "<p>Lees bladzijde 12</p>"
++    assert element.public_info == "<p>Lees bladzijde 12</p>"
++    assert element.upload_folders[0].name == "Bijlagen"
++    assert element.upload_folders[0].files[0].name == "oefening.pdf"
++    assert element.upload_folders[0].files[0].size == 1200
++    assert element.upload_folders[0].files[0].download_url == "/planner/api/v1/files/file-1/download"
++
++
++def test_prepare_planned_element_accepts_loose_file_list_and_drops_garbage():
++    prepared = prepare_planned_element(
++        {
++            "attachments": [
++                {"filename": "fiche.pdf", "mime": "pdf", "url": "/x/fiche.pdf"},
++                "ignore-me",
++                {"name": "not-a-file"},
++            ]
++        }
++    )
++
++    folders = prepared["uploadFolders"]
++    assert len(folders) == 1
++    assert folders[0]["files"][0]["name"] == "fiche.pdf"
++    assert folders[0]["files"][0]["downloadUrl"] == "/x/fiche.pdf"
++    assert "attachments" not in prepared
++
++
++def test_load_planned_assignment_parses_element_shaped_body_and_ignores_garbage():
++    fixture = Path(__file__).parent / "requests/get/planner/api/v1/planned-elements/user/49_10880_2/f549d8cede9f.json"
++    payload = json.loads(fixture.read_text(encoding="utf8"))[0]
++    payload["description"] = "Toets hoofdstuk 3"
++    session = MagicMock()
++    session.json.return_value = payload
++
++    element = load_planned_assignment(session, 49, payload["id"])
++
++    assert element is not None
++    assert element.description == "Toets hoofdstuk 3"
++    session.json.assert_called_once_with(f"/planner/api/v1/planned-assignments/49/{payload['id']}")
++
++    session.json.return_value = {"unexpected": True}
++    assert load_planned_assignment(session, 49, payload["id"]) is None
++
++    session.json.side_effect = RuntimeError("offline")
++    assert load_planned_assignment(session, 49, payload["id"]) is None
++
++
+ def test_planned_element_tolerates_missing_restore_from_trash():
+     """Live calendar GETs omit canUserRestoreFromTrash on some lesson payloads."""
+     fixture = Path(__file__).parent / "requests/get/planner/api/v1/planned-elements/user/49_10880_2/1b58e50a13c1.json"

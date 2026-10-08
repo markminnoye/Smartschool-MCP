@@ -233,8 +233,8 @@ endpoints:
     module: course-documents
     observed_on: dering.smartschool.be parent/co-account
     library: FolderItem
-    mcp_tool: none
-    notes: HTML listing, not JSON. File download URLs are parsed from the page. Live on De Ring.
+    mcp_tool: get_course_documents
+    notes: HTML listing, not JSON. File download URLs are parsed from the page. Live on De Ring. MCP download_course_document saves the parsed /Documents/Download/Index path.
 
 
   # --- Results / reports / periods ---
@@ -684,8 +684,12 @@ endpoints:
     module: planner
     observed_on: depass.smartschool.be parent/co-account
     library: unmapped
-    mcp_tool: none
-    notes: Assignment detail from the Planner UI. Second path segment is a UUID-like assignment id.
+    mcp_tool: get_planner_attachments
+    notes: >
+      Assignment detail from the Planner UI. Second path segment is a UUID-like
+      assignment id. MCP calls this only as a fallback when an assignment row
+      has no description and no upload folders. Response body is not in the
+      fixtures and is not live-verified.
 
   - method: POST
     path: /planner/api/v1/planned-lesson-clusters/list
@@ -1444,8 +1448,8 @@ endpoints:
     module: course-documents
     observed_on: dering.smartschool.be parent/co-account
     library: FolderItem
-    mcp_tool: none
-    notes: Subfolder HTML. Library follows browse_url parsed from the parent page.
+    mcp_tool: get_course_documents
+    notes: Subfolder HTML. Library follows browse_url parsed from the parent page. MCP accepts that browse_url.
 
 
   # --- Uploadzone (Vakken course folder) ---
