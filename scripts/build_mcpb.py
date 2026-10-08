@@ -37,10 +37,14 @@ def assert_repo_pin(root: Path = ROOT) -> None:
 
 
 def bundle_pyproject() -> str:
-    """Runtime project for the bundle. The fork is a path, not a git clone."""
+    """Runtime project for the bundle. The fork is a path, not a git clone.
+
+    The manifest version Claude Desktop shows is ``0.3.0-test.1``. ``uv lock``
+    only accepts a PEP 440 version, so this project version is the local form.
+    """
     return f"""[project]
 name = "smartschool-mcp"
-version = "0.3.0-test.1"
+version = "0.3.0+test.1"
 description = "Smartschool MCP server for Claude Desktop"
 requires-python = ">=3.10"
 dependencies = [
