@@ -10,6 +10,8 @@
 
 Connect Claude (and other MCP clients) to your Smartschool account — ask about grades, assignments, messages, and your schedule in plain language.
 
+The Claude Desktop extension is published by Sonic Rocket. This repository includes the original Smartschool MCP, copyright (c) 2025 Mauro Druwel, under the MIT license in `LICENSE`. The portal client is [`svaningelgem/smartschool`](https://github.com/svaningelgem/smartschool), also MIT.
+
 ## Claude Code plugin
 
 [`claude-plugin/`](claude-plugin/) is a downloadable Claude Code plugin (skill + local scripts) for agenda, berichten, and cijfers. It uses the same account file as this MCP server. Install with `claude --plugin-dir ./claude-plugin` after `uv sync`; steps are in [`claude-plugin/README.md`](claude-plugin/README.md). A hosted web demo is out of scope.
