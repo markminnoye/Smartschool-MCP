@@ -219,18 +219,68 @@ def prepare_planned_element(payload: dict[str, Any]) -> dict[str, Any]:
     else:
         description = description.strip()
 
-    raw_folders = None
-    for key in ("uploadFolders", "upload_folders", "attachments"):
+    folders: list[dict[str, Any]] = []
+    for key in ("uploadFolders", "upload_folders"):
         if key in data:
-            raw_folders = data.get(key)
+            folders = normalize_upload_folders(data.get(key))
             break
-    if raw_folders is not None:
-        data["uploadFolders"] = normalize_upload_folders(raw_folders)
-    else:
-        data["uploadFolders"] = []
+    extras: list[dict[str, Any]] = []
+    # Assignment detail keeps files in ``attachments[]``. ``uploadFolder`` is a
+    # separate object and is not that file list.
+    if isinstance(data.get("attachments"), list):
+        extras.extend(normalize_upload_folders(data.get("attachments")))
+    singular = data.get("uploadFolder")
+    if isinstance(singular, dict):
+        extras.extend(normalize_upload_folders(singular))
+    data["uploadFolders"] = _merge_upload_folders(folders, extras)
     data["description"] = description
     data["publicInfo"] = public_info
     return data
+
+
+def _merge_upload_folders(
+    primary: list[dict[str, Any]], extra: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Combine folder lists. The same file id is kept once."""
+    merged: list[dict[str, Any]] = []
+    by_folder: dict[str, dict[str, Any]] = {}
+    seen_files: set[str] = set()
+
+    def take(folder: dict[str, Any]) -> dict[str, Any]:
+        folder_id = _as_id(folder.get("id"))
+        key = folder_id.lower()
+        if key and key in by_folder:
+            return by_folder[key]
+        if not key:
+            for existing in merged:
+                if not _as_id(existing.get("id")):
+                    return existing
+        target: dict[str, Any] = {
+            "id": folder_id,
+            "name": folder.get("name") or "",
+            "files": [],
+        }
+        merged.append(target)
+        if key:
+            by_folder[key] = target
+        return target
+
+    for folder in [*primary, *extra]:
+        if not isinstance(folder, dict):
+            continue
+        target = take(folder)
+        if not target.get("name") and folder.get("name"):
+            target["name"] = folder.get("name") or ""
+        for item in folder.get("files") or []:
+            if not isinstance(item, dict):
+                continue
+            file_id = _as_id(item.get("id")).lower()
+            if file_id and file_id in seen_files:
+                continue
+            if file_id:
+                seen_files.add(file_id)
+            target["files"].append(item)
+    return merged
 
 
 def _fmt_when(value: object) -> str | None:
@@ -423,13 +473,51 @@ def file_download(
         if _as_id(raw.get("id")).lower() != element_id.lower():
             continue
         prepared = prepare_planned_element(raw)
+        source = _source_file(raw, file_id)
         for folder in prepared.get("uploadFolders") or []:
             for item in folder.get("files") or []:
                 if _as_id(item.get("id")).lower() == file_id.lower():
                     found = dict(item)
                     found["folder_id"] = folder.get("id") or ""
                     found["folder_name"] = folder.get("name") or ""
+                    if not found["folder_id"]:
+                        singular = raw.get("uploadFolder")
+                        if isinstance(singular, dict):
+                            found["folder_id"] = _as_id(singular.get("id"))
+                    if source is not None:
+                        found["_source"] = source
                     return found
+    return None
+
+
+def _source_file(raw: dict[str, Any], file_id: str) -> dict[str, Any] | None:
+    """Original file object, so unknown URL fields stay available."""
+    containers: list[object] = []
+    for key in ("attachments", "uploadFolders", "upload_folders"):
+        if key in raw:
+            containers.append(raw.get(key))
+    singular = raw.get("uploadFolder")
+    if isinstance(singular, dict):
+        containers.append(singular)
+    for folders in containers:
+        found = _source_in_container(folders, file_id)
+        if found is not None:
+            return found
+    return None
+
+
+def _source_in_container(folders: object, file_id: str) -> dict[str, Any] | None:
+    for folder in _coerce_folder_list(folders):
+        if not isinstance(folder, dict):
+            continue
+        file_list = _first_list(folder, "files", "uploads", "items", "attachments")
+        candidates = file_list if file_list is not None else [folder]
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            item_id = _as_id(item.get("id", item.get("fileId"))).lower()
+            if item_id == file_id.lower():
+                return item
     return None
 
 
@@ -446,3 +534,243 @@ def portal_download_target(session: Any, url: str) -> str | None:
     if isinstance(base, str) and target.startswith(base):
         return target
     return None
+
+
+_PATH_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_SECRET_KEY_RE = re.compile(
+    r"(?i)cookie|token|password|secret|authorization|csrf|session"
+)
+_DIAGNOSTIC_KEY_RE = re.compile(
+    r"(?i)upload|attach|folder|file|document|link|url|href|download"
+)
+
+
+def _path_id(value: object) -> str | None:
+    text = _as_id(value)
+    if _PATH_ID_RE.fullmatch(text):
+        return text
+    return None
+
+
+def _public_download_path(target: str) -> str:
+    """Path without query or fragment, so a signed URL is not echoed."""
+    return target.split("?", 1)[0].split("#", 1)[0]
+
+
+def planner_download_candidates(
+    session: Any,
+    *,
+    element_id: str,
+    file_info: dict[str, Any],
+    platform_id: int | None,
+) -> list[str]:
+    """Same-host GETs to try for one planner file.
+
+    Nothing here is live-verified. A URL already on the file is tried first.
+    Next are attachment routes shaped like the assignment-detail ``attachments[]``
+    list (that list has an id and no URL). Older ``/files/`` guesses stay after
+    those. My Documents and Intradesk are different modules and are not guessed:
+    an id collision there could save the wrong file.
+    """
+    paths: list[str] = []
+
+    def add(url: object) -> None:
+        if not isinstance(url, str):
+            return
+        target = portal_download_target(session, url)
+        if target and target not in paths:
+            paths.append(target)
+
+    add(file_info.get("download_url"))
+    source = file_info.get("_source")
+    if isinstance(source, dict):
+        for url in _url_strings(source):
+            add(url)
+
+    file_id = _path_id(file_info.get("id"))
+    revision_id = _path_id(file_info.get("revision_id"))
+    folder_id = _path_id(file_info.get("folder_id"))
+    element = _path_id(element_id)
+    platform = None
+    if (
+        isinstance(platform_id, int)
+        and not isinstance(platform_id, bool)
+        and platform_id > 0
+    ):
+        platform = str(platform_id)
+    if file_id and element:
+        if platform:
+            add(
+                "/planner/api/v1/planned-assignments/"
+                f"{platform}/{element}/attachments/{file_id}"
+            )
+            add(
+                "/planner/api/v1/planned-assignments/"
+                f"{platform}/{element}/attachments/{file_id}/download"
+            )
+        add(f"/planner/api/v1/planned-elements/{element}/attachments/{file_id}")
+        add(
+            f"/planner/api/v1/planned-elements/{element}/attachments/{file_id}/download"
+        )
+        if platform:
+            add(
+                "/planner/api/v1/planned-elements/"
+                f"{platform}/{element}/attachments/{file_id}"
+            )
+            add(
+                "/planner/api/v1/planned-elements/"
+                f"{platform}/{element}/attachments/{file_id}/download"
+            )
+    if file_id:
+        add(f"/planner/api/v1/files/{file_id}/download")
+        if revision_id:
+            add(f"/planner/api/v1/files/{file_id}/revisions/{revision_id}/download")
+        if folder_id:
+            add(f"/planner/api/v1/upload-folders/{folder_id}/files/{file_id}/download")
+        if element:
+            add(f"/planner/api/v1/planned-elements/{element}/files/{file_id}/download")
+        if platform and element:
+            add(
+                "/planner/api/v1/planned-assignments/"
+                f"{platform}/{element}/files/{file_id}/download"
+            )
+    return paths
+
+
+def _url_strings(node: object, *, depth: int = 0) -> list[str]:
+    found: list[str] = []
+    if depth > 5:
+        return found
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if isinstance(key, str) and _SECRET_KEY_RE.search(key):
+                continue
+            if isinstance(value, str):
+                text = value.strip()
+                if (
+                    text.startswith("/")
+                    or text.startswith("http://")
+                    or text.startswith("https://")
+                ):
+                    found.append(text)
+            else:
+                found.extend(_url_strings(value, depth=depth + 1))
+    elif isinstance(node, list):
+        for item in node[:20]:
+            found.extend(_url_strings(item, depth=depth + 1))
+    return found
+
+
+_MIME_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,60}"
+    r"(?:/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,40})?$"
+)
+_VISIBILITY_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,40}$")
+
+
+def _safe_mime(value: object) -> str:
+    text = _text(value)
+    if text and _MIME_RE.fullmatch(text):
+        return text
+    return ""
+
+
+def _safe_visibility(value: object) -> dict[str, Any] | str | None:
+    """Keep visibility tokens. Free text, including file names, is dropped."""
+    if isinstance(value, str) and _VISIBILITY_RE.fullmatch(value.strip()):
+        return value.strip()
+    if not isinstance(value, dict):
+        return None
+    kept: dict[str, Any] = {}
+    option = value.get("option")
+    if isinstance(option, str) and _VISIBILITY_RE.fullmatch(option.strip()):
+        kept["option"] = option.strip()
+    days = value.get("daysAfterEnd")
+    if isinstance(days, int) and not isinstance(days, bool) and abs(days) < 100_000:
+        kept["daysAfterEnd"] = days
+    return kept or None
+
+
+def _safe_attachment(item: dict[str, Any]) -> dict[str, Any] | None:
+    """id, mimeType, and visibility only. ``fileName`` is never copied."""
+    att_id = _path_id(item.get("id", item.get("fileId")))
+    if att_id is None:
+        return None
+    row: dict[str, Any] = {"id": att_id}
+    mime = _safe_mime(_first_text(item, "mimeType", "mime", "contentType"))
+    if mime:
+        row["mimeType"] = mime
+    visibility = _safe_visibility(item.get("visibility"))
+    if visibility is not None:
+        row["visibility"] = visibility
+    return row
+
+
+def json_diagnostic(value: object, *, max_keys: int = 80) -> dict[str, Any]:
+    """Key paths, URL-like values, and safe attachment fields.
+
+    Query strings and secret keys are dropped. Attachment values are limited
+    to ``id``, ``mimeType``, and ``visibility``. File names are not included.
+    """
+    keys: list[str] = []
+    urls: list[dict[str, str]] = []
+    attachments: list[dict[str, Any]] = []
+
+    def walk(node: object, path: str, depth: int) -> None:
+        if len(keys) >= max_keys or depth > 6:
+            return
+        if isinstance(node, dict):
+            for key, child in node.items():
+                if not isinstance(key, str):
+                    continue
+                child_path = f"{path}.{key}" if path else key
+                keys.append(child_path)
+                if _SECRET_KEY_RE.search(key):
+                    continue
+                if isinstance(child, str):
+                    safe = _public_url(child)
+                    if safe:
+                        urls.append({"key": child_path, "value": safe})
+                else:
+                    walk(child, child_path, depth + 1)
+        elif isinstance(node, list) and node:
+            if path == "attachments" or path.endswith(".attachments"):
+                for item in node[:20]:
+                    if len(attachments) >= 20 or not isinstance(item, dict):
+                        continue
+                    safe_item = _safe_attachment(item)
+                    if safe_item is not None:
+                        attachments.append({"path": f"{path}[]", **safe_item})
+            walk(node[0], f"{path}[]", depth + 1)
+
+    walk(value, "", 0)
+    return {"keys": keys, "url_fields": urls, "attachments": attachments}
+
+
+def _public_url(value: str) -> str | None:
+    text = value.strip()
+    if not text or text.startswith("//") or ".." in text:
+        return None
+    if not (
+        text.startswith("/")
+        or text.startswith("http://")
+        or text.startswith("https://")
+    ):
+        return None
+    cut = _public_download_path(text)
+    if len(cut) > 300:
+        cut = cut[:300]
+    return cut
+
+
+def attachment_diagnostic(raw: dict[str, Any]) -> dict[str, Any]:
+    """Top-level keys, plus key/URL detail for attachment-shaped fields."""
+    element_keys = [key for key in raw if isinstance(key, str)]
+    fields: dict[str, Any] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or _DIAGNOSTIC_KEY_RE.search(key) is None:
+            continue
+        if _SECRET_KEY_RE.search(key):
+            continue
+        fields[key] = json_diagnostic(value)
+    return {"element_keys": element_keys, "fields": fields}

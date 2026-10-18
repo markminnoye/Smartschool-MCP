@@ -110,6 +110,10 @@ def stage_bundle(dest: Path, vendor_project: Path) -> None:
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
     shutil.copy2(ROOT / "manifest.json", dest / "manifest.json")
+    icon = ROOT / "icon.png"
+    if not icon.is_file():
+        raise SystemExit("icon.png is missing; the bundle manifest points at it")
+    shutil.copy2(icon, dest / "icon.png")
     shutil.copytree(
         ROOT / "smartschool_mcp",
         dest / "smartschool_mcp",

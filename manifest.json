@@ -1,22 +1,22 @@
 {
   "manifest_version": "0.4",
   "name": "smartschool-mcp",
-  "display_name": "Smartschool",
+  "display_name": "Smartschool voor ouders",
   "version": "0.2.0",
-  "description": "Rooster, punten, taken en berichten van Smartschool voor één kind.",
-  "long_description": "Claude Desktop-extensie voor het Smartschool-portaal. De server start via uv en praat via stdio. Vul school, gebruikersnaam, wachtwoord, geboortedatum en de naam van je kind in via Configure. Die gegevens worden eenmalig bewaard in ~/.config/smartschool/credentials.json (op een Mac het wachtwoord in de Sleutelhanger). Staat dat profiel er al, dan wint dat bestand en maakt Configure geen tweede kopie.",
+  "description": "Rooster, punten, taken en berichten van Smartschool voor ouders.",
+  "long_description": "Smartschool voor ouders\n\nLaat Claude meekijken in het Smartschool-portaal van je kind. Vraag bijvoorbeeld:\n\"Wat moet Lisa morgen meenemen?\", \"Welke toetsen komen er aan?\" of \"Wat waren haar laatste punten?\"\n\nWat Claude kan opzoeken:\n- Het lesrooster en de planning: toetsen, huistaken en wat je moet meebrengen\n- Resultaten, met de opmerkingen van de leraar\n- Berichten van de school, met bijlagen\n- Documenten uit de vakmappen, zoals cursussen en werkboeken\n- Meerdere kinderen: kies per vraag wie je bedoelt\n\nClaude leest alleen mee. Er wordt niets verstuurd, beantwoord of gewijzigd in Smartschool.\n\nInstellen\nKies \"Configureren\" en vul in: je school, je gebruikersnaam en wachtwoord, de geboortedatum van je kind voor de extra verificatie van Smartschool, en de naam van je kind. Dit hoef je maar één keer te doen.\n\nJe gegevens\nJe inloggegevens blijven op je eigen computer. Wat Claude opzoekt, verschijnt in je gesprek.\n\nHeb je al eerder een profiel ingesteld? Dan gebruikt de extensie dat bestaande profiel en wordt er geen tweede kopie gemaakt.\n\nWerkt met Claude Desktop.",
   "author": {
-    "name": "Mauro Druwel",
-    "email": "mauro.druwel@gmail.com",
-    "url": "https://github.com/MauroDruwel/Smartschool-MCP"
+    "name": "Sonic Rocket",
+    "url": "https://github.com/markminnoye/Smartschool-MCP"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/MauroDruwel/Smartschool-MCP"
+    "url": "https://github.com/markminnoye/Smartschool-MCP"
   },
-  "homepage": "https://github.com/MauroDruwel/Smartschool-MCP",
-  "documentation": "https://github.com/MauroDruwel/Smartschool-MCP/blob/main/docs/claude-desktop-test.md",
-  "support": "https://github.com/MauroDruwel/Smartschool-MCP/issues",
+  "homepage": "https://github.com/markminnoye/Smartschool-MCP",
+  "documentation": "https://github.com/markminnoye/Smartschool-MCP/blob/main/README.md",
+  "support": "https://github.com/markminnoye/Smartschool-MCP/issues",
+  "icon": "icon.png",
   "server": {
     "type": "uv",
     "entry_point": "smartschool_mcp/__main__.py",
@@ -122,33 +122,33 @@
     "school": {
       "type": "string",
       "title": "School",
-      "description": "Subdomein van de school, bijvoorbeeld dering of depass",
+      "description": "Je school, als subdomein (het deel vóór .smartschool.be).",
       "required": false
     },
     "username": {
       "type": "string",
       "title": "Gebruikersnaam",
-      "description": "Smartschool-gebruikersnaam",
+      "description": "Je Smartschool-gebruikersnaam.",
       "required": false
     },
     "password": {
       "type": "string",
       "title": "Wachtwoord",
-      "description": "Smartschool-wachtwoord. Eenmalig bewaard, niet in het chatvenster.",
+      "description": "Je Smartschool-wachtwoord. Eenmalig bewaard, niet in het chatvenster.",
       "required": false,
       "sensitive": true
     },
     "birth_date": {
       "type": "string",
-      "title": "Geboortedatum van het kind",
-      "description": "jjjj-mm-dd",
+      "title": "Geboortedatum van je kind (jjjj-mm-dd)",
+      "description": "De geboortedatum van je kind, voor de extra verificatie van Smartschool.",
       "required": false,
       "sensitive": true
     },
     "child_name": {
       "type": "string",
-      "title": "Naam van het kind",
-      "description": "De naam waarmee Claude het kind kiest",
+      "title": "Naam van je kind",
+      "description": "De naam van je kind, zodat Claude weet wie je bedoelt.",
       "required": false
     }
   },
