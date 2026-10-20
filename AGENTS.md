@@ -80,7 +80,7 @@ Stdio and OAuth sessions are `GuardedSession` (`smartschool_mcp/guard.py`): one 
 
 Claude Desktop install: `manifest.json` (mcpb `uv`) plus `scripts/build_mcpb.py`. Optional `user_config` fields (school, username, password, birth date, child name) map to `SMARTSCHOOL_*` and are saved into `~/.config/smartschool/credentials.json` when that profile is missing. The MCPB workflow uploads `dist/smartschool-mcp.mcpb`. The bundle vendors the pinned fork so the parent install does not clone git. Parent steps: `docs/claude-desktop-test.md`.
 
-Each new test-build `.mcpb` gets the next version so Claude Desktop shows Update. `manifest.json` uses `0.3.0-rc.N`; the next test build is `0.3.0-rc.1`, then `rc.2`, and so on. `scripts/build_mcpb.py` uses the PEP 440 form `0.3.0rcN` (`uv lock` rejects `0.3.0-rc.N`). The current test artifact stays `0.3.0-test.1` until that next build. Release PRs stay on `0.2.0` unless a version bump is already part of them. Name the manifest version in `docs/claude-desktop-test.md`.
+Each new test-build `.mcpb` gets the next version so Claude Desktop shows Update. `manifest.json` uses `0.3.0-rc.N`. This test artifact is `0.3.0-rc.1`; the next one is `0.3.0-rc.2`. `scripts/build_mcpb.py` uses the PEP 440 form `0.3.0rcN` (`uv lock` rejects `0.3.0-rc.N`). Release PRs stay on `0.2.0` unless a version bump is already part of them. Name the manifest version in `docs/claude-desktop-test.md`.
 
 Library objects are lazy (e.g. `.details` triggers HTTP). Use `getattr(..., default)` where stubs are incomplete. Tools catch `Exception` and return `{"error": ...}` (or a list variant).
 

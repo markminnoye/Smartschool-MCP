@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `download_attachment(message_id, file_id, save_path?)` — download an attachment; defaults to `~/Downloads/smartschool/`, accepts optional `save_path`
 - `has_attachments` and `attachment_count` fields in every `get_messages` result
 - `get_schedule` and `get_planned_elements` include planner element `id`, `description`, and `upload_folders`
-- `get_planner_attachments` / `download_planner_file` — list and download files attached to a planner item. The website `includes=upload-folders` query is sent; the JSON field names and the file download URL are **not live-verified** (fixtures at `smartschool@517de70` do not contain them). Download uses a URL from that payload only.
+- `get_planner_attachments` / `download_planner_file` — list and download files attached to a planner item. The website `includes=upload-folders` query is sent; the JSON field names and the file download URL are **not live-verified** (fixtures at `smartschool@517de70` do not contain them). Download uses a same-host URL from that payload when one is present, otherwise GET-only guesses on the same host. `include_raw=true` returns key names and URL-like fields, without cookies or query strings.
 - `get_course_documents` / `download_course_document` — course Documenten via `TopNavCourses` + `FolderItem` (`/Documents/Index/Index/...` and `/Documents/Download/Index/...`, both in the library fixtures)
 
 ### Removed
@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `download_course_document` keeps the filename from `Content-Disposition` when the download sends one, and otherwise adds an extension from the short Smartschool type (`pdf`, `docx`) or the real MIME type. An extension that is already present is not doubled.
+- `get_results` reads class average and median from the evaluation JSON itself. The library types `centralTendencies` as a list of strings, so object payloads used to fail validation and stay null. Strings, graphics, and fields such as `classAverage` / `gemiddelde` / `mediaan` are accepted. When the school hides the numbers they stay null. `include_raw=true` summarizes the first result's detail keys.
 - MCP server login uses the same one-try guard as the Claude plugin: one credential POST, then `~/.cache/smartschool/<subdomain>/<user>/auth_failed`. `/login?error=1` counts as failure. A later call does not send the password again.
 - `switch_child` follows the live Mijn kinderen chain from HAR: gotourl → `/otp/{token}` → relative `/Studentcard`. Foreign hops use a raw GET with browser navigation headers so the library cannot POST this account's password on `/login`. Cross-school `account-verification` may still run on a new device; TOTP stays blocked.
 - Claude Code plugin: an empty course list or empty body is not a login lockout; `/login?error=1` still writes `auth_failed`; a leading `https://` on `SMARTSCHOOL_MAIN_URL` is stripped; an expired message session exits with an error instead of an empty inbox; grade detail lookups re-raise authentication errors
