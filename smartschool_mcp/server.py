@@ -45,6 +45,7 @@ from smartschool_mcp.credentials import (
     MissingCredentialsError,
     prepare_server_credentials,
 )
+from smartschool_mcp.filenames import filename_from_response, header_value
 from smartschool_mcp.guard import (
     GuardedSession,
     auth_failed_message,
@@ -54,12 +55,20 @@ from smartschool_mcp.guard import (
 from smartschool_mcp.planner_fields import (
     ASSIGNMENT_DETAIL_TYPES,
     PLANNER_ATTACHMENT_INCLUDES,
+    attachment_diagnostic,
+    calendar_element_dict,
     element_id_or_none,
     fetch_assignment_detail,
     fetch_calendar,
     fetch_calendar_raw,
     file_download,
-    portal_download_target,
+    json_diagnostic,
+    planner_download_candidates,
+)
+from smartschool_mcp.result_stats import (
+    detail_diagnostic,
+    statistics_from_detail,
+    statistics_from_payload,
 )
 
 
@@ -1059,7 +1068,12 @@ def download_course_document(
         if not getattr(resp, "ok", False):
             status = getattr(resp, "status_code", "?")
             return {"error": f"Download failed: HTTP {status}"}
-        saved = _write_download(resp.content, str(filename), save_path)
+        saved_name = filename_from_response(
+            str(filename),
+            str(match.get("mime_type") or ""),
+            resp,
+        )
+        saved = _write_download(resp.content, saved_name, save_path)
         saved.update(
             {
                 "course_id": course_id,
@@ -1072,22 +1086,57 @@ def download_course_document(
         return {"error": _tool_error(e, "Failed to download course document")}
 
 
+_EVALUATION_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,160}$")
+
+
+def _fetch_evaluation(result: object) -> dict[str, Any] | None:
+    """Raw evaluation JSON, not the library model (tendencies are typed as strings)."""
+    identifier = getattr(result, "identifier", None)
+    if (
+        not isinstance(identifier, str)
+        or _EVALUATION_ID_RE.fullmatch(identifier) is None
+    ):
+        return None
+    session = getattr(result, "session", None)
+    json_call = getattr(session, "json", None)
+    if not callable(json_call):
+        return None
+    try:
+        payload = json_call(f"/results/api/v1/evaluations/{identifier}")
+    except Exception:
+        return None
+    if isinstance(payload, dict):
+        return payload
+    return None
+
+
 @mcp.tool()
 def get_results(
     limit: int = 15,
     offset: int = 0,
     course_filter: str | None = None,
     include_details: bool = True,
+    include_raw: bool = False,
 ) -> dict[str, Any]:
     """
     Retrieve student results/grades with detailed information.
+
+    Class average and median come from the evaluation detail payload
+    (``centralTendencies``, or a field such as ``classAverage`` /
+    ``gemiddelde`` / ``mediaan`` when that is what the school sends).
+    A school or teacher can hide those numbers. They stay null when the
+    payload does not include them.
 
     Args:
         limit: Maximum number of results to return (default: 15)
         offset: Number of results to skip from the beginning (default: 0)
         course_filter: Filter results by course name (partial match, case-insensitive)
-        include_details: Whether to fetch detailed info (teacher, average, median)
-            - saves API calls if False
+        include_details: Whether to fetch class average and median.
+            Saves API calls if False. The teacher on each row comes from
+            the list payload either way.
+        include_raw: On the first result only, add a secret-free summary of
+            the detail JSON: key names and whether score-like average/median
+            values were present. No names and no cookies.
 
     Returns:
         Dictionary with results list and pagination info.
@@ -1096,6 +1145,7 @@ def get_results(
         - get_results() -> First 15 results with details
         - get_results(course_filter="Math") -> Results from courses containing "Math"
         - get_results(include_details=False) -> Basic info only, faster response
+        - get_results(include_raw=True) -> First row also has a ``raw`` diagnostic
     """
     try:
         results = Results(_session())
@@ -1114,7 +1164,7 @@ def get_results(
         end_index = offset + limit
         paginated = all_results[offset:end_index]
 
-        results_list = []
+        results_list: list[dict[str, Any]] = []
 
         for result in paginated:
             # Basic result information (teacher comes from gradebook_owner,
@@ -1136,35 +1186,29 @@ def get_results(
                 "feedback": result.feedback[0].text if result.feedback else "",
             }
 
-            # Fetch central tendencies (average/median) only when requested
+            # Class average/median only when requested. The list payload has
+            # the teacher already; these numbers live on the detail call.
+            first_row = not results_list
+            raw_payload = None
+            if include_details or (include_raw and first_row):
+                raw_payload = _fetch_evaluation(result)
             if include_details:
                 result_data.update({"average": None, "median": None})
-
-                try:
-                    # details is a lazy-loaded property — fetches on first access
-                    detail = result.details
-
-                    # Extract statistical information (central tendencies)
-                    if detail and detail.central_tendencies:
-                        tendencies = detail.central_tendencies
-
-                        if len(tendencies) > 0 and hasattr(tendencies[0], "graphic"):
-                            g = tendencies[0].graphic
-                            result_data["average"] = {
-                                "description": getattr(g, "description", "N/A"),
-                                "value": getattr(g, "value", None),
-                            }
-
-                        if len(tendencies) > 1 and hasattr(tendencies[1], "graphic"):
-                            g = tendencies[1].graphic
-                            result_data["median"] = {
-                                "description": getattr(g, "description", "N/A"),
-                                "value": getattr(g, "value", None),
-                            }
-
-                except Exception:
-                    # central_tendencies unavailable — keep default None values
-                    pass
+                if raw_payload is not None:
+                    average, median = statistics_from_payload(raw_payload)
+                    result_data["average"] = average
+                    result_data["median"] = median
+                else:
+                    try:
+                        detail = result.details
+                    except Exception:
+                        detail = None
+                    if detail is not None:
+                        average, median = statistics_from_detail(detail)
+                        result_data["average"] = average
+                        result_data["median"] = median
+            if include_raw and first_row:
+                result_data["raw"] = detail_diagnostic(raw_payload)
 
             results_list.append(result_data)
 
@@ -1693,6 +1737,7 @@ def get_planner_attachments(
     from_date: str | None = None,
     to_date: str | None = None,
     days_ahead: int = 34,
+    include_raw: bool = False,
 ) -> dict[str, Any]:
     """
     List upload folders and files attached to one planner item.
@@ -1713,6 +1758,12 @@ def get_planner_attachments(
         from_date: Inclusive start YYYY-MM-DD (default: today).
         to_date: Inclusive end YYYY-MM-DD (default: from_date + days_ahead).
         days_ahead: Used when to_date is omitted (default: 34).
+        include_raw: Add key names and URL-like fields from the calendar row
+            and, when the school sends one, the assignment-detail JSON.
+            Each ``attachments[]`` item also includes its id, mimeType, and
+            visibility, so those can be compared with ``file_id``. File names,
+            query strings, cookies, and secret-looking values are left out.
+            Use this when ``download_planner_file`` cannot find a path.
     """
     try:
         safe_id = element_id_or_none(element_id)
@@ -1720,22 +1771,25 @@ def get_planner_attachments(
             return {"error": "Invalid element_id"}
         start, end = _planner_window(from_date, to_date, days_ahead)
         session = _session()
-        rows = fetch_calendar(session, start, end, None, PLANNER_ATTACHMENT_INCLUDES)
-        row = next(
+        raw_rows = fetch_calendar_raw(
+            session, start, end, None, PLANNER_ATTACHMENT_INCLUDES
+        )
+        raw_row = next(
             (
                 item
-                for item in rows
+                for item in raw_rows
                 if str(item.get("id") or "").lower() == safe_id.lower()
             ),
             None,
         )
-        if row is None:
+        if raw_row is None:
             return {
                 "error": (
                     f"Planner element {safe_id} not found between "
                     f"{start.isoformat()} and {end.isoformat()}"
                 )
             }
+        row = calendar_element_dict(raw_row)
 
         detail_status = "not_called"
         element_type = row.get("type")
@@ -1743,14 +1797,29 @@ def get_planner_attachments(
             not row.get("description") and not row.get("upload_folders")
         )
         platform_id = row.get("platform_id")
+        detail_raw: dict[str, Any] | None = None
         if needs_detail and isinstance(platform_id, int):
             detail_status = "unavailable"
             detail = fetch_assignment_detail(session, platform_id, safe_id)
             if detail is not None:
                 detail_status = "parsed"
                 row = _merge_planner_detail(row, detail)
+        if (
+            include_raw
+            and element_type in ASSIGNMENT_DETAIL_TYPES
+            and isinstance(platform_id, int)
+            and not isinstance(platform_id, bool)
+        ):
+            try:
+                loaded = session.json(
+                    f"/planner/api/v1/planned-assignments/{platform_id}/{safe_id}"
+                )
+            except Exception:
+                loaded = None
+            if isinstance(loaded, dict):
+                detail_raw = loaded
 
-        return {
+        payload: dict[str, Any] = {
             "element_id": safe_id,
             "name": row.get("name") or "",
             "type": element_type,
@@ -1766,8 +1835,54 @@ def get_planner_attachments(
                 "body_verified": False,
             },
         }
+        if include_raw:
+            payload["raw"] = {
+                "attachment": attachment_diagnostic(raw_row),
+                "detail": (
+                    json_diagnostic(detail_raw)
+                    if detail_raw is not None
+                    else {"present": False, "keys": [], "url_fields": []}
+                ),
+            }
+        return payload
     except Exception as e:
         return {"error": _tool_error(e, "Failed to retrieve planner attachments")}
+
+
+_PLANNER_DOWNLOAD_FAILED = (
+    "Dit plannerbestand heeft geen werkend downloadpad. "
+    "Er stond geen link van de school in de gegevens, "
+    "en de paden die we daarna probeerden gaven geen bestand terug. "
+    "Vraag de bijlagen opnieuw op met include_raw op true "
+    "en vergelijk het id, het bestandstype en de zichtbaarheid "
+    "van attachments met het file_id. Bestandsnamen staan daar niet bij."
+)
+
+
+def _reported_download_path(target: str) -> str:
+    return target.split("?", 1)[0].split("#", 1)[0]
+
+
+def _response_is_download(resp: object) -> bool:
+    """True for a file body. HTML and JSON error envelopes are not files."""
+    if not getattr(resp, "ok", False):
+        return False
+    content = getattr(resp, "content", b"")
+    if not isinstance(content, (bytes, bytearray)) or not content:
+        return False
+    headers = getattr(resp, "headers", None)
+    content_type = (header_value(headers, "Content-Type") or "").split(";", 1)[0]
+    content_type = content_type.strip().lower()
+    if content_type in {"text/html", "application/xhtml+xml"}:
+        return False
+    head = bytes(content[:300]).lstrip().lower()
+    if head.startswith((b"<!doctype", b"<html", b"<head")):
+        return False
+    disposition = header_value(headers, "Content-Disposition") or ""
+    unnamed_json = (
+        content_type == "application/json" and "filename" not in disposition.lower()
+    )
+    return not unnamed_json
 
 
 @mcp.tool()
@@ -1782,9 +1897,19 @@ def download_planner_file(
     """
     Download one file from a planner item's upload folders.
 
-    Uses a download URL only when the calendar (or assignment-detail) payload
-    includes one. There is no verified standalone download path for planner
-    files; a payload without a URL returns an error instead of guessing.
+    A same-host URL in the calendar or assignment-detail payload is tried
+    first. If that is missing or does not return a file, GET tries
+    attachment routes
+    (``/planner/api/v1/planned-assignments/{platformId}/{assignmentId}/attachments/{attachmentId}``
+    with and without ``/download``, plus planned-elements variants) and then
+    the older ``/files/`` guesses. All of those stay on the same host. The
+    first response that looks like a file is saved. ``download_path`` says
+    which path worked. ``live_verified`` stays false: none of those paths is
+    confirmed against the website.
+
+    If every path fails, the error is in Dutch and lists the paths that were
+    tried. Ask for ``get_planner_attachments(..., include_raw=true)`` to see
+    attachment id, mimeType, and visibility (not file names) plus any links.
 
     Args:
         element_id: Planner element UUID.
@@ -1806,68 +1931,77 @@ def download_planner_file(
         raw_rows = fetch_calendar_raw(
             session, start, end, None, PLANNER_ATTACHMENT_INCLUDES
         )
+        element = next(
+            (
+                raw
+                for raw in raw_rows
+                if str(raw.get("id") or "").lower() == safe_id.lower()
+            ),
+            None,
+        )
+        platform_id = element.get("platformId") if isinstance(element, dict) else None
+        element_type = (
+            element.get("plannedElementType") if isinstance(element, dict) else None
+        )
         found = file_download(raw_rows, safe_id, safe_file)
-        if found is None:
-            element = next(
-                (
-                    raw
-                    for raw in raw_rows
-                    if str(raw.get("id") or "").lower() == safe_id.lower()
-                ),
-                None,
-            )
-            platform_id = (
-                element.get("platformId") if isinstance(element, dict) else None
-            )
-            element_type = (
-                element.get("plannedElementType") if isinstance(element, dict) else None
-            )
-            if (
-                isinstance(platform_id, int)
-                and not isinstance(platform_id, bool)
-                and element_type in ASSIGNMENT_DETAIL_TYPES
-            ):
-                try:
-                    detail = session.json(
-                        f"/planner/api/v1/planned-assignments/{platform_id}/{safe_id}"
-                    )
-                except Exception:
-                    detail = None
-                if isinstance(detail, dict):
-                    found = file_download(
-                        [{**detail, "id": safe_id}], safe_id, safe_file
-                    )
+        if found is None and (
+            isinstance(platform_id, int)
+            and not isinstance(platform_id, bool)
+            and element_type in ASSIGNMENT_DETAIL_TYPES
+        ):
+            try:
+                detail = session.json(
+                    f"/planner/api/v1/planned-assignments/{platform_id}/{safe_id}"
+                )
+            except Exception:
+                detail = None
+            if isinstance(detail, dict):
+                found = file_download([{**detail, "id": safe_id}], safe_id, safe_file)
         if found is None:
             return {
                 "error": f"File {safe_file} not found on planner element {safe_id}",
                 "live_verified": False,
             }
-        target = portal_download_target(session, str(found.get("download_url") or ""))
-        if target is None:
+        candidates = planner_download_candidates(
+            session,
+            element_id=safe_id,
+            file_info=found,
+            platform_id=platform_id if isinstance(platform_id, int) else None,
+        )
+        tried: list[str] = []
+        saved_response = None
+        used_path = ""
+        for target in candidates:
+            reported = _reported_download_path(target)
+            tried.append(reported)
+            try:
+                resp = session.get(target)
+            except Exception:
+                continue
+            if _response_is_download(resp):
+                saved_response = resp
+                used_path = reported
+                break
+        if saved_response is None:
             return {
-                "error": (
-                    "Planner file has no same-host download URL. "
-                    "The list payload did not include one, and no download "
-                    "path for planner upload files is verified."
-                ),
+                "error": _PLANNER_DOWNLOAD_FAILED,
                 "file_id": safe_file,
                 "name": found.get("name") or "",
+                "tried": tried,
                 "live_verified": False,
             }
-        resp = session.get(target)
-        if not getattr(resp, "ok", False):
-            status = getattr(resp, "status_code", "?")
-            return {"error": f"Download failed: HTTP {status}", "live_verified": False}
-        saved = _write_download(
-            resp.content,
+        saved_name = filename_from_response(
             str(found.get("name") or "") or f"planner_{safe_file}",
-            save_path,
+            str(found.get("mime_type") or ""),
+            saved_response,
         )
+        saved = _write_download(saved_response.content, saved_name, save_path)
         saved.update(
             {
                 "element_id": safe_id,
                 "file_id": safe_file,
                 "mime_type": found.get("mime_type") or "",
+                "download_path": used_path,
                 "live_verified": False,
             }
         )
