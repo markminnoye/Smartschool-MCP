@@ -185,7 +185,7 @@ Releases. Nothing is published to PyPI or the MCP Registry.
 1. Bump `version` in `pyproject.toml`, `manifest.json`,
    `scripts/build_mcpb.py` (`_DEFAULT_VERSION`), `smartschool_mcp/__init__.py`
    and `claude-plugin/.claude-plugin/plugin.json`, and run `uv lock`.
-2. Update `CHANGELOG.md`: move `[Unreleased]` entries under a new version heading.
+2. Update `CHANGELOG.md` (written in Dutch): move the `[Niet uitgebracht]` entries under a new version heading. GitHub release notes are in Dutch too.
 3. Open a PR, get it merged to `main`.
 4. Create a GitHub Release (tag `vX.Y.Z`) — the `mcpb.yml` workflow builds
    `smartschool-mcp-<version>.mcpb` and attaches it to that release.
