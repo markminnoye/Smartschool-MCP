@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Claude Desktop rejected `ochtendbriefing` / `weekbriefing` with "Failed to attach prompt" because `prompts/get` returned different wording than the mcpb manifest template. The server now substitutes `${arguments.child}` into that exact template.
+
 ## [0.3.1] - 2026-11-23
 
 ### Added
