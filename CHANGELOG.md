@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `get_results` / `get_messages` check `limit` (1–200) and `offset`. An unknown `box_type` is an error instead of silently reading the inbox.
 - `get_messages` with `search_query` reads at most 50 message bodies and reports `body_search_truncated`.
 - Planner tools refuse a reversed date range or one longer than 400 days.
-- `uv.lock` records version 0.3.0.
+- `uv.lock` records the package version again (it still said 0.2.0).
 - Tools no longer block the event loop. Each tool runs in a worker thread, one call at a time per Smartschool login; different logins (universal mode) run in parallel. The OAuth login form checks the password in a worker thread too.
 
 ## [0.3.1] - 2026-11-23
