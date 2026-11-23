@@ -211,3 +211,90 @@ def test_run_http_universal_configures_oauth(
     allowed_hosts = fake_mcp.settings.transport_security["allowed_hosts"]
     assert "mcp.example.com" in allowed_hosts[-1]
     run_mock.assert_called_once()
+
+
+def test_main_http_defaults_to_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_http = MagicMock()
+    monkeypatch.delenv("MCP_HOST", raising=False)
+    monkeypatch.setattr(
+        sys, "argv", ["smartschool-mcp", "--transport", "streamable-http"]
+    )
+    monkeypatch.setattr(entry, "_run_http", run_http)
+
+    entry.main()
+
+    assert run_http.call_args.args[0] == "127.0.0.1"
+
+
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        ("127.0.0.1", True),
+        ("127.0.0.2", True),
+        ("localhost", True),
+        ("::1", True),
+        ("[::1]", True),
+        ("0.0.0.0", False),
+        ("::", False),
+        ("192.168.1.10", False),
+        ("mcp.example.com", False),
+    ],
+)
+def test_is_loopback(host: str, expected: bool) -> None:
+    assert entry._is_loopback(host) is expected
+
+
+def _fake_http_mcp() -> SimpleNamespace:
+    return SimpleNamespace(
+        settings=SimpleNamespace(stateless_http=False, json_response=False),
+        _custom_starlette_routes=[],
+        streamable_http_app=lambda: "asgi-app",
+    )
+
+
+def test_run_http_refuses_open_bind_without_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_mock = MagicMock()
+    monkeypatch.delenv("MCP_API_KEY", raising=False)
+    monkeypatch.setattr(entry, "mcp", _fake_http_mcp())
+    monkeypatch.setattr("uvicorn.run", run_mock)
+
+    with pytest.raises(SystemExit, match="without authentication"):
+        entry._run_http("0.0.0.0", 8000, universal=False)
+
+    run_mock.assert_not_called()
+
+
+def test_run_http_allows_open_bind_with_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_mock = MagicMock()
+    monkeypatch.setenv("MCP_API_KEY", "secret-token")
+    monkeypatch.setattr(entry, "mcp", _fake_http_mcp())
+    monkeypatch.setattr("uvicorn.run", run_mock)
+    monkeypatch.setattr(
+        "starlette.middleware.cors.CORSMiddleware",
+        lambda app, **kwargs: ("cors", app, kwargs),
+    )
+
+    entry._run_http("0.0.0.0", 8000, universal=False)
+
+    assert isinstance(run_mock.call_args.args[0][1], entry._BearerAuthMiddleware)
+
+
+def test_run_http_allows_loopback_without_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_mock = MagicMock()
+    monkeypatch.delenv("MCP_API_KEY", raising=False)
+    monkeypatch.setattr(entry, "mcp", _fake_http_mcp())
+    monkeypatch.setattr("uvicorn.run", run_mock)
+    monkeypatch.setattr(
+        "starlette.middleware.cors.CORSMiddleware",
+        lambda app, **kwargs: ("cors", app, kwargs),
+    )
+
+    entry._run_http("127.0.0.1", 8000, universal=False)
+
+    run_mock.assert_called_once()

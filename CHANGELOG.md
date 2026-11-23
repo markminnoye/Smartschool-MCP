@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Downloads (`download_attachment`, `download_course_document`, `download_planner_file`, `download_homepage_image`) only write inside the download folder: `SMARTSCHOOL_DOWNLOAD_DIR`, default `~/Downloads/smartschool`. `save_path` is now a subfolder of it; paths outside it (absolute, `..`, symlinks) are refused. Files are created with `O_EXCL`, so an existing file or planted symlink is never written through.
+- HTTP transport binds `127.0.0.1` by default (was `0.0.0.0`). Single-user mode refuses a non-loopback host without `MCP_API_KEY`.
+
+### Fixed
+
+- Tools no longer block the event loop. Each tool runs in a worker thread, one call at a time per Smartschool login; different logins (universal mode) run in parallel. The OAuth login form checks the password in a worker thread too.
+
 ## [0.3.1] - 2026-11-23
 
 ### Added

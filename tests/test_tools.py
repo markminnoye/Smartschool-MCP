@@ -6,6 +6,7 @@ from datetime import date, datetime, time, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 from smartschool import Attachment
 from smartschool._objects import GraphicColor, PercentageGraphic, TextGraphic
 
@@ -1727,3 +1728,98 @@ def test_download_homepage_image_rejects_foreign_host(tmp_path) -> None:
     assert "error" in result
     assert "Refusing" in result["error"]
     assert not list(tmp_path.iterdir())
+
+
+# ── Download folder containment ───────────────────────────────────────────────
+
+
+def test_download_dir_defaults_to_root(download_root) -> None:
+    assert srv._download_dir(None) == download_root.resolve()
+    assert srv._download_dir("  ") == download_root.resolve()
+
+
+def test_download_dir_accepts_relative_subfolder(download_root) -> None:
+    assert srv._download_dir("rapporten") == (download_root / "rapporten").resolve()
+
+
+def test_download_dir_accepts_absolute_path_inside_root(download_root) -> None:
+    inside = download_root / "a" / "b"
+    assert srv._download_dir(str(inside)) == inside.resolve()
+
+
+@pytest.mark.parametrize("bad", ["/tmp", "../escape", "sub/../../x", "~/.ssh"])
+def test_download_dir_refuses_paths_outside_root(bad: str) -> None:
+    with pytest.raises(srv.DownloadPathError, match="inside the download folder"):
+        srv._download_dir(bad)
+
+
+def test_download_dir_refuses_symlink_out_of_root(
+    download_root, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    outside = tmp_path_factory.mktemp("outside")
+    (download_root / "link").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(srv.DownloadPathError):
+        srv._download_dir("link")
+
+
+def test_write_download_does_not_follow_dangling_symlink(
+    download_root, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    target = tmp_path_factory.mktemp("outside") / "evil.pth"
+    (download_root / "evil.pth").symlink_to(target)
+
+    saved = srv._write_download(b"import os", "evil.pth", download_root)
+
+    assert not target.exists()
+    assert saved["name"] == "evil (1).pth"
+    assert (download_root / "evil (1).pth").read_bytes() == b"import os"
+
+
+def test_write_download_never_overwrites(download_root) -> None:
+    (download_root / "menu.png").write_bytes(b"old")
+    saved = srv._write_download(b"new", "menu.png", download_root)
+    assert saved["name"] == "menu (1).png"
+    assert (download_root / "menu.png").read_bytes() == b"old"
+
+
+@pytest.mark.parametrize("raw", ["", ".", "..", "../../etc/.."])
+def test_write_download_replaces_unusable_names(download_root, raw: str) -> None:
+    saved = srv._write_download(b"x", raw, download_root)
+    assert saved["name"] == "download"
+    assert (download_root / "download").read_bytes() == b"x"
+
+
+def test_write_download_strips_directories_from_name(download_root) -> None:
+    saved = srv._write_download(
+        b"x", "../../Library/LaunchAgents/a.plist", download_root
+    )
+    assert saved["saved_to"] == str(download_root / "a.plist")
+
+
+def test_download_attachment_refuses_save_path_outside_root() -> None:
+    with patch("smartschool_mcp.server.Attachments") as attachments:
+        result = srv.download_attachment(999, 42, save_path="/tmp")
+    assert "inside the download folder" in result["error"]
+    attachments.assert_not_called()
+
+
+def test_download_homepage_image_refuses_save_path_outside_root() -> None:
+    session = _homepage_session()
+    with patch("smartschool_mcp.server._session", return_value=session):
+        result = srv.download_homepage_image(
+            "https://school.smartschool.be/public/x.png", "~/Library/LaunchAgents"
+        )
+    assert "inside the download folder" in result["error"]
+    session.get.assert_not_called()
+
+
+def test_download_planner_file_refuses_save_path_outside_root() -> None:
+    result = srv.download_planner_file(
+        "0f0e0d0c-0b0a-4909-8807-060504030201", "file1", save_path="/etc"
+    )
+    assert "inside the download folder" in result["error"]
+
+
+def test_download_course_document_refuses_save_path_outside_root() -> None:
+    result = srv.download_course_document(1, 2, save_path="..")
+    assert "inside the download folder" in result["error"]

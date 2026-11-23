@@ -18,7 +18,7 @@ def _manifest() -> dict:
 
 def _server_tool_names() -> list[str]:
     source = (ROOT / "smartschool_mcp" / "server.py").read_text(encoding="utf-8")
-    return re.findall(r"@mcp\.tool\(\)\ndef (\w+)\(", source)
+    return re.findall(r"@_tool\ndef (\w+)\(", source)
 
 
 def test_manifest_configure_saves_into_the_central_store() -> None:

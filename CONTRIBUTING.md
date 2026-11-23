@@ -111,7 +111,7 @@ tests/
 1. Find the corresponding class in the
    [smartschool library](https://github.com/svaningelgem/smartschool).
 2. Add the import to `server.py`.
-3. Decorate with `@mcp.tool()` and call `_session()` inside the function body.
+3. Decorate with `@_tool` (registers it with `mcp` and runs it in a worker thread, one call at a time per login) and call `_session()` inside the function body.
 4. Wrap the entire body in `try / except Exception as e` and return
    `{"error": f"Failed to ...: {e}"}` (or `[{"error": ...}]` for list returns).
 5. Use built-in generics (`list[dict[str, Any]]`, `str | None`) — not

@@ -14,6 +14,13 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def download_root(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    """Point every download at this test's tmp_path, never ~/Downloads."""
+    monkeypatch.setenv("SMARTSCHOOL_DOWNLOAD_DIR", str(tmp_path))
+    return tmp_path
+
+
+@pytest.fixture(autouse=True)
 def mock_session(request: pytest.FixtureRequest) -> MagicMock:
     """Replace the cached Smartschool session with a MagicMock.
 

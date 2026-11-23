@@ -20,6 +20,7 @@ import time
 from typing import NamedTuple
 from urllib.parse import urlparse
 
+import anyio.to_thread
 from cachetools import TTLCache
 from mcp.server.auth.provider import (
     AccessToken,
@@ -514,6 +515,12 @@ async def _handle_login_get(
     return _render_login_form(pending_id)
 
 
+def _verify_login(creds: AppCredentials) -> None:
+    """Log in once and load a page, so bad credentials raise here."""
+    session = GuardedSession(creds)
+    session.get("/?module=Messages&file=messageOverview")
+
+
 async def _handle_login_post(
     request: Request,
     provider: SmartschoolOAuthProvider,
@@ -568,9 +575,9 @@ async def _handle_login_post(
         username=username, password=password, main_url=school, mfa=mfa
     )
     try:
-        session = GuardedSession(creds)
-        # Force an actual request to verify the credentials work
-        session.get("/?module=Messages&file=messageOverview")
+        # Blocking HTTP to Smartschool: run it in a worker thread so the
+        # event loop keeps serving other users while this login is checked.
+        await anyio.to_thread.run_sync(_verify_login, creds)
     except Exception as exc:
         _logger.debug(
             "Smartschool login failed for user=%s school=%s", username, school
