@@ -332,6 +332,17 @@ def test_plugin_manifest_has_no_mcp_server() -> None:
     assert "config.example.env" in skill
     assert "niet opnieuw proberen" in skill
     assert "in parallel" in skill
+    briefing = (PLUGIN / "skills" / "daily-briefing" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    assert "daily-briefing" in briefing
+    assert "get_children" in briefing
+    assert "switch_child" in briefing
+    assert "Vanavond zeker" in briefing
+    assert "mark.minnoye@" not in briefing.lower()
+    assert "elliot" not in briefing.lower()
+    assert "1083569" not in briefing
+    assert "Never invent recipients" in briefing
     readme = (PLUGIN / "README.md").read_text(encoding="utf-8")
     assert "--plugin-dir" in readme
     assert "config.example.env" in readme
@@ -342,6 +353,8 @@ def test_plugin_manifest_has_no_mcp_server() -> None:
     assert "--profile" in skill
     assert "Geen loginpoging" in skill
     assert "Mijn kinderen" in skill
+    assert "daily-briefing" in readme
+    assert manifest["version"] == "0.2.0"
 
 
 def test_wrong_password_posts_once(

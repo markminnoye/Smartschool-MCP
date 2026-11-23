@@ -14,7 +14,7 @@ The Claude Desktop extension is published by Sonic Rocket. This repository inclu
 
 ## Claude Code plugin
 
-[`claude-plugin/`](claude-plugin/) is a downloadable Claude Code plugin (skill + local scripts) for agenda, berichten, and cijfers. It uses the same account file as this MCP server. Install with `claude --plugin-dir ./claude-plugin` after `uv sync`; steps are in [`claude-plugin/README.md`](claude-plugin/README.md). A hosted web demo is out of scope.
+[`claude-plugin/`](claude-plugin/) is a downloadable Claude Code plugin (skills + local scripts) for agenda, berichten, cijfers, and a Dutch daily parent briefing (`/smartschool:daily-briefing`). It uses the same account file as this MCP server. Install with `claude --plugin-dir ./claude-plugin` after `uv sync`; steps are in [`claude-plugin/README.md`](claude-plugin/README.md). A hosted web demo is out of scope.
 
 ## Tools
 

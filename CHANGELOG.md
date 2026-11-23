@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Claude Code plugin skill `daily-briefing` (`/smartschool:daily-briefing`): short Dutch weekday parent briefing from Smartschool (MCP tools when available, else plugin scripts). No family-specific ids or mail addresses; optional mail only when the user asks.
 - Publishing a GitHub Release builds `smartschool-mcp-<version>.mcpb` and attaches it to that release (version stamped from the tag into the Desktop manifest). PR builds still upload a temporary Actions artifact.
 
 ### Changed

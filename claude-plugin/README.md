@@ -1,6 +1,6 @@
 # Smartschool Claude Code plugin
 
-Local Claude Code plugin for Smartschool: agenda (planner), berichten, and cijfers. It is a skill plus thin Python scripts that call the `smartschool` library already pinned in this repository. There is no hosted MCP server in this folder. Several school logins can be stored as profiles. Each profile is one login and can carry a list of child names.
+Local Claude Code plugin for Smartschool: agenda (planner), berichten, cijfers, and a Dutch **ochtendbriefing** for parents. It is skills plus thin Python scripts that call the `smartschool` library already pinned in this repository. There is no hosted MCP server in this folder. Several school logins can be stored as profiles. Each profile is one login and can carry a list of child names.
 
 The MCP server at the repo root is separate. A hosted demo is out of scope.
 
@@ -8,10 +8,11 @@ The MCP server at the repo root is separate. A hosted demo is out of scope.
 
 ```text
 claude-plugin/
-  .claude-plugin/plugin.json    # manifest (only file inside .claude-plugin/)
-  skills/smartschool/SKILL.md   # when to run which script
-  scripts/                      # login, schedule, messages, results, courses
-  config.example.env            # credential template, no secrets
+  .claude-plugin/plugin.json         # manifest (only file inside .claude-plugin/)
+  skills/smartschool/SKILL.md        # when to run which script
+  skills/daily-briefing/SKILL.md     # Dutch weekday parent briefing
+  scripts/                           # login, schedule, messages, results, courses
+  config.example.env                 # credential template, no secrets
 ```
 
 ## Install
@@ -43,7 +44,7 @@ uv run --project /path/to/Smartschool-MCP \
   python /path/to/claude-plugin/scripts/login.py
 ```
 
-In Claude Code the skill is `/smartschool:smartschool`. Claude also loads it when you ask about an agenda, berichten, or cijfers.
+In Claude Code the skills are `/smartschool:smartschool` (which script to run) and `/smartschool:daily-briefing` (short Dutch parent briefing for one child). Claude also loads them when you ask about an agenda, berichten, cijfers, or an ochtendrapport. The briefing prefers Smartschool MCP tools when they are connected; otherwise it uses these scripts. Mail delivery is optional and only when you ask and a mail tool is available.
 
 ## Credentials
 
