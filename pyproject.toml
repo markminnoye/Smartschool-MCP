@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "smartschool-mcp"
-version = "0.3.2"
+version = "1.0.0"
 description = "Access Smartschool courses, grades, assignments, messages, schedule, reports and more through the Model Context Protocol"
 readme = "README.md"
 authors = [{name = "Mauro Druwel", email = "mauro.druwel@gmail.com"}]

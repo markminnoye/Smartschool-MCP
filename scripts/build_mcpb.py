@@ -35,7 +35,7 @@ ARCHIVE_URL = (
 )
 _DROP_VENDOR_DIRS = ("tests", ".github", "docs", "dev", ".claude", "scripts")
 _DROP_VENDOR_FILES = ("uv.lock", "sonar-project.properties", "codecov.yml", "restub")
-_DEFAULT_VERSION = "0.3.2"
+_DEFAULT_VERSION = "1.0.0"
 
 
 def assert_repo_pin(root: Path = ROOT) -> None:

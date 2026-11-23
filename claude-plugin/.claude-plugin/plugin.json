@@ -1,7 +1,7 @@
 {
   "name": "smartschool",
   "displayName": "Smartschool",
-  "version": "0.3.2",
+  "version": "1.0.0",
   "description": "Read-only Smartschool agenda, messages, grades, and a Dutch daily parent briefing. Local skills and Python scripts; no hosted MCP server.",
   "author": {
     "name": "Sonic Rocket / Mark",

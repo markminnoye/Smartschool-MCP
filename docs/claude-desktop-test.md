@@ -2,7 +2,7 @@
 
 Dit is een test voor een ouder. Je downloadt één bestand, opent het in Claude Desktop, en vult daarna school, gebruikersnaam, wachtwoord, geboortedatum en de naam van je kind in. Dat doe je in het venster **Configure**. Je maakt zelf geen accountbestand aan.
 
-Elke nieuwe build krijgt een hoger versienummer, zodat Claude **Update** toont. Officiële versies (bijvoorbeeld **0.3.0**) staan op de GitHub Releases-pagina als `smartschool-mcp-0.3.0.mcpb`. Testbuilds vóór een release gebruiken **0.3.0-rc.1**, **0.3.0-rc.2**, enzovoort.
+Elke nieuwe build krijgt een hoger versienummer, zodat Claude **Update** toont. Officiële versies (bijvoorbeeld **1.0.0**) staan op de GitHub Releases-pagina als `smartschool-mcp-1.0.0.mcpb`. Testbuilds vóór een volgende release gebruiken bijvoorbeeld **1.0.1-rc.1**, **1.0.1-rc.2**, enzovoort.
 
 ## 1. Het bestand downloaden
 
@@ -12,7 +12,7 @@ Je zoekt een bestand dat eindigt op `.mcpb`.
 
 1. Open de [Releases](https://github.com/markminnoye/Smartschool-MCP/releases)-pagina.
 2. Kies de versie die je wilt.
-3. Download `smartschool-mcp-<versie>.mcpb` (bijvoorbeeld `smartschool-mcp-0.3.0.mcpb`).
+3. Download `smartschool-mcp-<versie>.mcpb` (bijvoorbeeld `smartschool-mcp-1.0.0.mcpb`).
 
 ### Testbuild van een wijziging (PR)
 

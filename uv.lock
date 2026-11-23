@@ -1719,7 +1719,7 @@ dependencies = [
 
 [[package]]
 name = "smartschool-mcp"
-version = "0.3.2"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "cachetools" },
