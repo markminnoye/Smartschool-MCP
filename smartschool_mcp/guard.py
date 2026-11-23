@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import NoReturn
 from urllib.parse import urlparse
 
+import requests
+from cachetools import TTLCache
 from smartschool import Smartschool, SmartSchoolAuthenticationError
 
 from smartschool_mcp.credentials import CredentialStoreError, profile_cache_dir
@@ -52,9 +54,20 @@ def cache_dir(username: str, main_url: str) -> Path:
                 host = credential_hostname(main_url)
             except SmartSchoolAuthenticationError:
                 host = "unknown"
-        safe_host = host.replace("/", "").replace("\\", "") or "unknown"
-        safe_user = username.strip() or "unknown"
-        return Path.home() / ".cache" / "smartschool" / safe_host / safe_user
+        return (
+            Path.home()
+            / ".cache"
+            / "smartschool"
+            / _safe_path_part(host)
+            / _safe_path_part(username)
+        )
+
+
+def _safe_path_part(value: str) -> str:
+    """One directory name: no separators, no ``..``. In universal mode the
+    username comes straight from the public login form."""
+    cleaned = re.sub(r"[^A-Za-z0-9._@-]", "_", value.strip()).strip(".")
+    return cleaned or "unknown"
 
 
 def auth_failed_path(username: str, main_url: str) -> Path:
@@ -219,12 +232,18 @@ class GuardedSession(Smartschool):
         username = creds.username
         main_url = creds.main_url
         with _credential_post_lock(username, main_url):
-            if self._login_failed or auth_failed_path(username, main_url).exists():
+            if self._login_failed or self._is_blocked():
                 self._block()
             self._password_posts += 1
             _logger.info("Smartschool login attempt")
             try:
                 posted = super()._do_login(response)
+            except requests.RequestException:
+                # A timeout, DNS failure or 5xx says nothing about the
+                # password. Locking here would shut the parent out for good
+                # after one Wi-Fi hiccup, so the error goes up unchanged.
+                _logger.warning("Smartschool login request failed; not locking")
+                raise
             except Exception:
                 self._login_failed = True
                 self._block()
@@ -250,21 +269,27 @@ class GuardedSession(Smartschool):
             self._block()
         return posted
 
-    def _refuse_if_blocked(self) -> None:
+    def _is_blocked(self) -> bool:
         creds = self._require_credentials()
-        if auth_failed_path(creds.username, creds.main_url).exists():
-            raise SmartSchoolAuthenticationError(
-                auth_failed_message(creds.username, creds.main_url)
-            )
+        return auth_failed_path(creds.username, creds.main_url).exists()
 
-    def _block(self) -> NoReturn:
+    def _blocked_message(self) -> str:
+        creds = self._require_credentials()
+        return auth_failed_message(creds.username, creds.main_url)
+
+    def _mark_blocked(self) -> None:
         creds = self._require_credentials()
         path = auth_failed_path(creds.username, creds.main_url)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("login failed\n", encoding="utf-8")
-        raise SmartSchoolAuthenticationError(
-            auth_failed_message(creds.username, creds.main_url)
-        )
+
+    def _refuse_if_blocked(self) -> None:
+        if self._is_blocked():
+            raise SmartSchoolAuthenticationError(self._blocked_message())
+
+    def _block(self) -> NoReturn:
+        self._mark_blocked()
+        raise SmartSchoolAuthenticationError(self._blocked_message())
 
     def _assert_credential_target(self, url: str) -> None:
         parsed = urlparse(url)
@@ -276,3 +301,58 @@ class GuardedSession(Smartschool):
                 "Login stopped: credentials were not posted. "
                 f"Host {actual!r} is not {expected!r}."
             )
+
+
+# ---------------------------------------------------------------------------
+# Universal (multi-user HTTP) mode: lockout in memory, with a time limit
+# ---------------------------------------------------------------------------
+
+MEMORY_LOCKOUT_SECONDS = 15 * 60
+_memory_lockouts: TTLCache[tuple[str, str], bool] = TTLCache(
+    maxsize=4096, ttl=MEMORY_LOCKOUT_SECONDS
+)
+_memory_lockouts_lock = threading.Lock()
+
+
+def _memory_key(username: str, main_url: str) -> tuple[str, str]:
+    host = main_url.strip().lower()
+    with contextlib.suppress(SmartSchoolAuthenticationError):
+        host = credential_hostname(main_url)
+    return username.strip().lower(), host
+
+
+def memory_lockout_active(username: str, main_url: str) -> bool:
+    with _memory_lockouts_lock:
+        return _memory_key(username, main_url) in _memory_lockouts
+
+
+def memory_lockout_message() -> str:
+    minutes = MEMORY_LOCKOUT_SECONDS // 60
+    return (
+        "LOGIN FAILED. Deze login werd geweigerd. "
+        f"Probeer het over {minutes} minuten opnieuw."
+    )
+
+
+class MemoryGuardedSession(GuardedSession):
+    """GuardedSession for universal mode: the lockout expires.
+
+    In universal mode the login form is public. With the file lockout anyone
+    could type a parent's username and a wrong password once and shut that
+    parent out of the server until an admin deletes a file. Here a rejected
+    login blocks that username for ``MEMORY_LOCKOUT_SECONDS`` instead, kept
+    in memory. That still stops password guessing (one try per window) and
+    leaves no marker on the server's disk.
+    """
+
+    def _is_blocked(self) -> bool:
+        creds = self._require_credentials()
+        return memory_lockout_active(creds.username, creds.main_url)
+
+    def _blocked_message(self) -> str:
+        return memory_lockout_message()
+
+    def _mark_blocked(self) -> None:
+        creds = self._require_credentials()
+        with _memory_lockouts_lock:
+            _memory_lockouts[_memory_key(creds.username, creds.main_url)] = True

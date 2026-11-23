@@ -11,9 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Downloads (`download_attachment`, `download_course_document`, `download_planner_file`, `download_homepage_image`) only write inside the download folder: `SMARTSCHOOL_DOWNLOAD_DIR`, default `~/Downloads/smartschool`. `save_path` is now a subfolder of it; paths outside it (absolute, `..`, symlinks) are refused. Files are created with `O_EXCL`, so an existing file or planted symlink is never written through.
 - HTTP transport binds `127.0.0.1` by default (was `0.0.0.0`). Single-user mode refuses a non-loopback host without `MCP_API_KEY`.
+- Universal mode: a rejected login blocks that username for 15 minutes in memory instead of writing a permanent `auth_failed` file. Anyone could otherwise lock a parent out of the server from the public login form. The form no longer shows the server's cache path.
+- Universal mode: an OAuth token without a Smartschool login is refused instead of falling back to the server's own account.
+- Lockout cache folders keep an unusual username inside one directory (no `/`, `\` or `..`).
+- Downloads refuse a Smartschool web page (expired session, login redirect) instead of saving it under the file's name.
+- CI pins every action to a commit SHA, installs with `uv sync --locked`, and the registry publish step pins `mcp-publisher` v1.8.16 with a sha256 check (the old download URL no longer matched the release assets).
 
 ### Fixed
 
+- A network error during login (timeout, DNS, 5xx) no longer writes `auth_failed`. Only a rejected password locks.
+- Universal mode: stored logins live as long as the refresh token (24 h, renewed on refresh), so a client that refreshes after an idle hour no longer has to sign in again. Revoking the refresh token forgets the password.
+- `get_results` no longer fails as a whole when one row has no teacher.
+- `get_results` / `get_messages` check `limit` (1–200) and `offset`. An unknown `box_type` is an error instead of silently reading the inbox.
+- `get_messages` with `search_query` reads at most 50 message bodies and reports `body_search_truncated`.
+- Planner tools refuse a reversed date range or one longer than 400 days.
+- `uv.lock` records version 0.3.0.
 - Tools no longer block the event loop. Each tool runs in a worker thread, one call at a time per Smartschool login; different logins (universal mode) run in parallel. The OAuth login form checks the password in a worker thread too.
 
 ## [0.3.1] - 2026-11-23

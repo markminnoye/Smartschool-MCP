@@ -54,8 +54,11 @@ from smartschool_mcp.credentials import (
 from smartschool_mcp.filenames import filename_from_response, header_value
 from smartschool_mcp.guard import (
     GuardedSession,
+    MemoryGuardedSession,
     auth_failed_message,
     auth_failed_path,
+    memory_lockout_active,
+    memory_lockout_message,
     normalize_school_main_url,
 )
 from smartschool_mcp.planner_fields import (
@@ -296,12 +299,12 @@ def _cached_app_session(
     validated_host = _validate_school_url(main_url)
     if not validated_host:
         raise ValueError("Untrusted or invalid Smartschool host")
-    if auth_failed_path(username, validated_host).exists():
-        raise SmartSchoolAuthenticationError(
-            auth_failed_message(username, validated_host)
-        )
+    if memory_lockout_active(username, validated_host):
+        raise SmartSchoolAuthenticationError(memory_lockout_message())
 
-    return GuardedSession(
+    # Universal mode: the lockout expires and lives in memory, like the
+    # login form's (see MemoryGuardedSession).
+    return MemoryGuardedSession(
         AppCredentials(
             username=username,
             password=password,
@@ -326,8 +329,15 @@ def _session() -> Smartschool:
         from smartschool_mcp.auth import get_credentials
 
         access_token = get_access_token()
-        if access_token is not None and hasattr(access_token, "cred_key"):
-            creds = get_credentials(access_token.cred_key)  # type: ignore[attr-defined]
+        if access_token is not None:
+            cred_key = getattr(access_token, "cred_key", None)
+            if not isinstance(cred_key, str):
+                # An authenticated request must never fall back to the
+                # process-wide account from the environment.
+                raise AuthenticationError(
+                    "OAuth token has no Smartschool login; re-authentication required"
+                )
+            creds = get_credentials(cred_key)
             if creds is None:
                 raise AuthenticationError(
                     "OAuth credentials expired; re-authentication required"
@@ -1155,6 +1165,8 @@ def download_course_document(
         if not getattr(resp, "ok", False):
             status = getattr(resp, "status_code", "?")
             return {"error": f"Download failed: HTTP {status}"}
+        if _portal_page_instead_of_file(resp, str(match.get("mime_type") or "")):
+            return {"error": _PORTAL_PAGE_ERROR}
         saved_name = filename_from_response(
             str(filename),
             str(match.get("mime_type") or ""),
@@ -1234,6 +1246,9 @@ def get_results(
         - get_results(include_details=False) -> Basic info only, faster response
         - get_results(include_raw=True) -> First row also has a ``raw`` diagnostic
     """
+    page_error = _page_error(limit, offset)
+    if page_error:
+        return {"error": page_error}
     try:
         results = Results(_session())
         all_results = list(results)
@@ -1260,7 +1275,7 @@ def get_results(
             result_data = {
                 "course": result.courses[0].name if result.courses else "Unknown",
                 "assignment": result.name or "Unknown Assignment",
-                "teacher": result.gradebook_owner.name.starting_with_first_name,
+                "teacher": _gradebook_owner_name(result),
                 "period": result.period.name if result.period else None,
                 "score_description": getattr(graphic, "description", "N/A"),
                 "score_value": getattr(graphic, "value", None),
@@ -1317,6 +1332,28 @@ def get_results(
 
     except Exception as e:
         return {"error": _tool_error(e, "Failed to retrieve results")}
+
+
+def _gradebook_owner_name(result: object) -> str | None:
+    """Teacher of a result row, or None when the payload has no owner."""
+    owner = getattr(result, "gradebook_owner", None)
+    name = getattr(owner, "name", None)
+    value = getattr(name, "starting_with_first_name", None)
+    return value if isinstance(value, str) else None
+
+
+def _page_error(limit: int, offset: int) -> str | None:
+    if limit < 1 or limit > _MAX_PAGE_SIZE:
+        return f"limit must be between 1 and {_MAX_PAGE_SIZE}"
+    if offset < 0:
+        return "offset must be 0 or more"
+    return None
+
+
+_MAX_PAGE_SIZE = 200
+_MAX_BODY_SEARCH = 50
+# The longest Planner window a tool asks for: one school year and a bit.
+_MAX_PLANNER_DAYS = 400
 
 
 class _TaskDict(TypedDict):
@@ -1523,7 +1560,10 @@ def get_messages(
         offset: Number of messages to skip from the beginning (default: 0)
         box_type: Type of mailbox - "INBOX", "SENT", "DRAFT", "SCHEDULED",
             "TRASH" (default: "INBOX")
-        search_query: Search in subject and body content (case-insensitive)
+        search_query: Search in subject and body content (case-insensitive).
+            Bodies are fetched one request each, for at most 50 messages
+            whose subject does not match; ``body_search_truncated`` is true
+            when more were skipped.
         sender_filter: Filter messages by sender name (partial match,
             case-insensitive)
         include_body: Whether to include full message body
@@ -1539,15 +1579,17 @@ def get_messages(
           "teacher"
         - get_messages(include_body=True) -> Full messages with body content
     """
+    page_error = _page_error(limit, offset)
+    if page_error:
+        return {"error": page_error}
+    box_type_enum = getattr(BoxType, box_type.strip().upper(), None)
+    if not isinstance(box_type_enum, BoxType):
+        allowed = ", ".join(member.name for member in BoxType)
+        return {"error": f"Unknown box_type {box_type!r}. Use one of: {allowed}"}
     try:
-        # Convert string box_type to BoxType enum
-        try:
-            box_type_enum = getattr(BoxType, box_type.upper())
-        except AttributeError:
-            box_type_enum = BoxType.INBOX  # Default fallback
-
+        session = _session()
         # Get message headers — headers already carry from_, subject, date, unread
-        all_headers = list(MessageHeaders(_session(), box_type=box_type_enum))  # type: ignore[abstract, var-annotated]
+        all_headers = list(MessageHeaders(session, box_type=box_type_enum))  # type: ignore[abstract, var-annotated]
 
         # Apply sender filter directly from headers (no full message fetch needed)
         if sender_filter:
@@ -1559,16 +1601,23 @@ def get_messages(
 
         # Apply search query: check subject first, only fetch body when subject
         # doesn't match
+        body_search_truncated = False
         if search_query:
             matched = []
+            bodies_fetched = 0
             for header in all_headers:
                 subject = (getattr(header, "subject", "") or "").lower()
                 if search_query.lower() in subject:
                     matched.append(header)
                     continue
-                # Fall back to fetching full message body
+                # Each body is one HTTP request. Cap them so a search over a
+                # full inbox stays a few seconds, not hundreds of requests.
+                if bodies_fetched >= _MAX_BODY_SEARCH:
+                    body_search_truncated = True
+                    continue
+                bodies_fetched += 1
                 try:
-                    full_msg = Message(_session(), header.id).get()  # type: ignore[abstract, var-annotated]
+                    full_msg = Message(session, header.id).get()  # type: ignore[abstract, var-annotated]
                     body = (getattr(full_msg, "body", "") or "").lower()
                     if search_query.lower() in body:
                         header._cached_message = full_msg
@@ -1604,7 +1653,7 @@ def get_messages(
             cached = getattr(header, "_cached_message", None)
             if include_body:
                 try:
-                    full_msg = cached or Message(_session(), header.id).get()  # type: ignore[abstract]
+                    full_msg = cached or Message(session, header.id).get()  # type: ignore[abstract]
                     message_data["body"] = getattr(full_msg, "body", "")
                 except Exception:
                     message_data["body"] = ""
@@ -1635,6 +1684,8 @@ def get_messages(
                 "sender_filter": sender_filter,
                 "include_body": include_body,
             },
+            # True when the search read only the first _MAX_BODY_SEARCH bodies.
+            "body_search_truncated": body_search_truncated,
         }
 
     except Exception as e:
@@ -1770,12 +1821,7 @@ def get_planned_elements(
         courses, assignment types, and upload folders when the payload has them.
     """
     try:
-        start = date.fromisoformat(from_date) if from_date else date.today()
-        end = (
-            date.fromisoformat(to_date)
-            if to_date
-            else start + timedelta(days=days_ahead)
-        )
+        start, end = _planner_window(from_date, to_date, days_ahead)
         elements_list = fetch_calendar(
             _session(),
             start,
@@ -1800,8 +1846,13 @@ def get_planned_elements(
 def _planner_window(
     from_date: str | None, to_date: str | None, days_ahead: int
 ) -> tuple[date, date]:
+    """Inclusive date window. Rejects a reversed or overly long range."""
     start = date.fromisoformat(from_date) if from_date else date.today()
     end = date.fromisoformat(to_date) if to_date else start + timedelta(days=days_ahead)
+    if end < start:
+        raise ValueError("to_date is before from_date")
+    if (end - start).days > _MAX_PLANNER_DAYS:
+        raise ValueError(f"Date range is longer than {_MAX_PLANNER_DAYS} days")
     return start, end
 
 
@@ -1970,6 +2021,39 @@ def _response_is_download(resp: object) -> bool:
         content_type == "application/json" and "filename" not in disposition.lower()
     )
     return not unnamed_json
+
+
+_HTML_CONTENT_TYPES = {"text/html", "application/xhtml+xml"}
+
+
+def _portal_page_instead_of_file(resp: object, expected_mime: str = "") -> bool:
+    """True when Smartschool answered with a web page instead of the file.
+
+    An expired session redirects a download to ``/login``; saving that page
+    as ``rapport.pdf`` hides the real problem. A file that is itself HTML
+    (``expected_mime`` mentions html) is still accepted.
+    """
+    url = getattr(resp, "url", None)
+    if isinstance(url, str) and url and _url_is_auth(url):
+        return True
+    if "html" in (expected_mime or "").lower():
+        return False
+    headers = getattr(resp, "headers", None)
+    content_type = (header_value(headers, "Content-Type") or "").split(";", 1)[0]
+    if content_type.strip().lower() in _HTML_CONTENT_TYPES:
+        return True
+    content = getattr(resp, "content", b"")
+    if isinstance(content, (bytes, bytearray)):
+        head = bytes(content[:300]).lstrip().lower()
+        if head.startswith((b"<!doctype html", b"<html", b"<head")):
+            return True
+    return False
+
+
+_PORTAL_PAGE_ERROR = (
+    "Smartschool sent a web page instead of the file. "
+    "The session may have expired; try again."
+)
 
 
 @_tool
@@ -2415,8 +2499,9 @@ def download_attachment(
     """
     try:
         download_dir = _download_dir(save_path)
+        session = _session()
         target_attachment = None
-        for att in Attachments(_session(), msg_id=message_id):  # type: ignore[abstract, var-annotated]
+        for att in Attachments(session, msg_id=message_id):  # type: ignore[abstract, var-annotated]
             if str(_attachment_file_id(att)) == str(file_id):
                 target_attachment = att
                 break
@@ -2426,11 +2511,13 @@ def download_attachment(
 
         # The upstream library's Attachment.download() incorrectly base64-decodes the
         # response; Smartschool actually returns raw binary.  Call the session directly.
-        resp = _session().get(
-            f"/?module=Messages&file=download&fileID={file_id}&target=0"
-        )
+        resp = session.get(f"/?module=Messages&file=download&fileID={file_id}&target=0")
         if not resp.ok:
             return {"error": f"Download failed: HTTP {resp.status_code}"}
+        if _portal_page_instead_of_file(
+            resp, str(getattr(target_attachment, "mime", "") or "")
+        ):
+            return {"error": _PORTAL_PAGE_ERROR}
 
         raw_name = getattr(target_attachment, "name", "") or ""
         saved = _write_download(
@@ -2571,6 +2658,8 @@ def download_homepage_image(
         resp = session.get(image_url)
         if not resp.ok:
             return {"error": f"Failed to download image: HTTP {resp.status_code}"}
+        if _portal_page_instead_of_file(resp, "image/*"):
+            return {"error": _PORTAL_PAGE_ERROR}
 
         filename = Path(unquote(urlparse(image_url).path)).name or "homepage_image"
         return _write_download(resp.content, filename, download_dir)

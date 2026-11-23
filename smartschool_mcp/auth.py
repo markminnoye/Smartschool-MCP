@@ -21,6 +21,7 @@ from typing import NamedTuple
 from urllib.parse import urlparse
 
 import anyio.to_thread
+import requests
 from cachetools import TTLCache
 from mcp.server.auth.provider import (
     AccessToken,
@@ -36,9 +37,9 @@ from starlette.responses import HTMLResponse, RedirectResponse, Response
 from starlette.routing import Route
 
 from smartschool_mcp.guard import (
-    GuardedSession,
-    auth_failed_message,
-    auth_failed_path,
+    MemoryGuardedSession,
+    memory_lockout_active,
+    memory_lockout_message,
 )
 
 _logger = logging.getLogger(__name__)
@@ -143,10 +144,6 @@ class _PendingAuth(NamedTuple):
 # Public helper for server.py
 # ---------------------------------------------------------------------------
 
-# Module-level credential store; populated by SmartschoolOAuthProvider.
-# 1-hour TTL, max 256 entries — mirrors the session cache in server.py.
-_credential_store: TTLCache[str, AppCredentials] = TTLCache(maxsize=256, ttl=3600)
-
 
 def get_credentials(cred_key: str) -> AppCredentials | None:
     """Look up Smartschool credentials by key (used by ``server._session()``)."""
@@ -163,6 +160,14 @@ _AUTH_CODE_TTL = 600  # 10 minutes
 _ACCESS_TOKEN_TTL = 3600  # 1 hour
 _REFRESH_TOKEN_TTL = 86400  # 24 hours
 _PENDING_AUTH_TTL = 600  # 10 minutes
+
+# Module-level credential store; populated by the login form.
+# Entries live as long as a refresh token, so a client that refreshes after
+# a quiet hour still finds the login. Each refresh resets the timer.
+# Max 256 entries — mirrors the session cache in server.py.
+_credential_store: TTLCache[str, AppCredentials] = TTLCache(
+    maxsize=256, ttl=_REFRESH_TOKEN_TTL
+)
 
 
 class SmartschoolOAuthProvider:
@@ -348,6 +353,9 @@ class SmartschoolOAuthProvider:
             self._access_tokens.pop(token.token, None)
         elif isinstance(token, SmartschoolRefreshToken):
             self._refresh_tokens.pop(token.token, None)
+            # The client disconnected: forget the stored password now
+            # instead of keeping it until the TTL runs out.
+            _credential_store.pop(token.cred_key, None)
 
     # -- Login form helpers (used by route handlers) ------------------------
 
@@ -516,8 +524,13 @@ async def _handle_login_get(
 
 
 def _verify_login(creds: AppCredentials) -> None:
-    """Log in once and load a page, so bad credentials raise here."""
-    session = GuardedSession(creds)
+    """Log in once and load a page, so bad credentials raise here.
+
+    The login form is public, so a rejected password blocks that username
+    for a while in memory (``MemoryGuardedSession``), not with a file that
+    only an admin can remove.
+    """
+    session = MemoryGuardedSession(creds)
     session.get("/?module=Messages&file=messageOverview")
 
 
@@ -560,17 +573,17 @@ async def _handle_login_post(
             mfa=mfa,
         )
 
-    if auth_failed_path(username, school).exists():
+    if memory_lockout_active(username, school):
         return _render_login_form(
             pending_id,
-            error=auth_failed_message(username, school),
+            error=memory_lockout_message(),
             school=school_raw,
             username=username,
             mfa=mfa,
         )
 
     # Validate credentials by attempting a Smartschool login.
-    # GuardedSession posts the password once, then writes auth_failed.
+    # A rejected password blocks this username for a while (in memory).
     creds = AppCredentials(
         username=username, password=password, main_url=school, mfa=mfa
     )
@@ -582,9 +595,10 @@ async def _handle_login_post(
         _logger.debug(
             "Smartschool login failed for user=%s school=%s", username, school
         )
-        detail = str(exc)
-        if "niet opnieuw proberen" in detail or "auth_failed" in detail:
-            error = detail
+        if memory_lockout_active(username, school):
+            error = memory_lockout_message()
+        elif isinstance(exc, requests.RequestException):
+            error = "Could not reach Smartschool. Please try again later."
         else:
             error = "Login failed — check your school URL, username, and password."
         return _render_login_form(

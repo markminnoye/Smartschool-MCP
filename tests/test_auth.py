@@ -644,7 +644,8 @@ class TestLoginHandlers:
         )
 
         with patch(
-            "smartschool_mcp.auth.GuardedSession", side_effect=RuntimeError("bad")
+            "smartschool_mcp.auth.MemoryGuardedSession",
+            side_effect=RuntimeError("bad"),
         ):
             response = await _handle_login_post(request, provider)
 
@@ -675,66 +676,107 @@ class TestLoginHandlers:
         mock_session = MagicMock()
         mock_session.get.return_value = object()
 
-        with patch("smartschool_mcp.auth.GuardedSession", return_value=mock_session):
+        with patch(
+            "smartschool_mcp.auth.MemoryGuardedSession", return_value=mock_session
+        ):
             response = await _handle_login_post(request, provider)
 
         assert response.status_code == 302
         assert "code=code-123" in response.headers["location"]
         assert "state=state123" in response.headers["location"]
 
-    @pytest.mark.asyncio
-    async def test_handle_login_post_stops_when_auth_failed(
-        self, tmp_path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        marker = tmp_path / "auth_failed"
-        marker.write_text("login failed\n", encoding="utf-8")
-        monkeypatch.setattr(
-            "smartschool_mcp.auth.auth_failed_path", lambda _user, _school: marker
-        )
-        provider = MagicMock()
-        provider.get_pending_auth.return_value = object()
+    @staticmethod
+    def _login_request(password: str = "secret") -> MagicMock:
         request = MagicMock()
         request.form = AsyncMock(
             return_value={
                 "pending": "abc",
                 "school": "school.smartschool.be",
                 "username": "john",
-                "password": "secret",
+                "password": password,
                 "mfa": "2000-01-01",
             }
         )
+        return request
 
-        with patch("smartschool_mcp.auth.GuardedSession") as mock_session:
-            response = await _handle_login_post(request, provider)
+    @pytest.mark.asyncio
+    async def test_handle_login_post_stops_during_memory_lockout(self) -> None:
+        provider = MagicMock()
+        provider.get_pending_auth.return_value = object()
+
+        with (
+            patch("smartschool_mcp.auth.memory_lockout_active", return_value=True),
+            patch("smartschool_mcp.auth.MemoryGuardedSession") as mock_session,
+        ):
+            response = await _handle_login_post(self._login_request(), provider)
 
         mock_session.assert_not_called()
+        body = response.body.decode()
         assert response.status_code == 200
-        assert "niet opnieuw proberen" in response.body.decode()
+        assert "15 minuten" in body
+        assert ".cache" not in body
 
     @pytest.mark.asyncio
     async def test_handle_login_post_shows_lockout_from_guard(self) -> None:
         provider = MagicMock()
         provider.get_pending_auth.return_value = object()
-        request = MagicMock()
-        request.form = AsyncMock(
-            return_value={
-                "pending": "abc",
-                "school": "school.smartschool.be",
-                "username": "john",
-                "password": "wrong",
-                "mfa": "2000-01-01",
-            }
-        )
 
-        with patch(
-            "smartschool_mcp.auth.GuardedSession",
-            side_effect=RuntimeError(
-                "LOGIN FAILED, niet opnieuw proberen. auth_failed"
+        with (
+            patch(
+                "smartschool_mcp.auth.memory_lockout_active",
+                side_effect=[False, True],
+            ),
+            patch(
+                "smartschool_mcp.auth.MemoryGuardedSession",
+                side_effect=RuntimeError("LOGIN FAILED"),
             ),
         ):
-            response = await _handle_login_post(request, provider)
+            response = await _handle_login_post(self._login_request("wrong"), provider)
 
         body = response.body.decode()
         assert response.status_code == 200
-        assert "niet opnieuw proberen" in body
+        assert "15 minuten" in body
         assert "Login failed — check" not in body
+
+    @pytest.mark.asyncio
+    async def test_handle_login_post_network_error_is_not_a_bad_password(
+        self,
+    ) -> None:
+        import requests
+
+        provider = MagicMock()
+        provider.get_pending_auth.return_value = object()
+
+        with patch(
+            "smartschool_mcp.auth.MemoryGuardedSession",
+            side_effect=requests.ConnectionError("down"),
+        ):
+            response = await _handle_login_post(self._login_request(), provider)
+
+        body = response.body.decode()
+        assert "Could not reach Smartschool" in body
+        assert "check your school URL" not in body
+
+
+def test_credential_store_outlives_an_idle_hour() -> None:
+    import smartschool_mcp.auth as auth
+
+    assert auth._credential_store.ttl == auth._REFRESH_TOKEN_TTL
+
+
+@pytest.mark.asyncio
+async def test_revoking_refresh_token_forgets_the_password() -> None:
+    import smartschool_mcp.auth as auth
+
+    provider = auth.SmartschoolOAuthProvider("https://mcp.example.com")
+    creds = AppCredentials(
+        username="john", password="pw", main_url="school.smartschool.be", mfa=""
+    )
+    refresh = auth.SmartschoolRefreshToken(
+        token="r1", client_id="c", scopes=[], expires_at=None, cred_key="k-revoke"
+    )
+    provider._refresh_tokens["r1"] = refresh
+    with patch.dict(auth._credential_store, {"k-revoke": creds}):
+        await provider.revoke_token(refresh)
+        assert "k-revoke" not in auth._credential_store
+    assert "r1" not in provider._refresh_tokens

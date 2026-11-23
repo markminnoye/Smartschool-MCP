@@ -1121,11 +1121,19 @@ def test_get_future_tasks_counts_tasks_correctly() -> None:
     mock_planned.assert_not_called()
 
 
-def test_get_messages_invalid_box_type_defaults_to_inbox() -> None:
+def test_get_messages_invalid_box_type_is_an_error() -> None:
     with patch("smartschool_mcp.server.MessageHeaders", return_value=[]) as mock_mh:
-        srv.get_messages(box_type="INVALID_BOX")
-    # Should not raise; BoxType.INBOX used as fallback
-    mock_mh.assert_called_once()
+        result = srv.get_messages(box_type="INVALID_BOX")
+    assert "Unknown box_type" in result["error"]
+    assert "INBOX" in result["error"]
+    mock_mh.assert_not_called()
+
+
+def test_get_messages_box_type_is_case_insensitive() -> None:
+    with patch("smartschool_mcp.server.MessageHeaders", return_value=[]) as mock_mh:
+        result = srv.get_messages(box_type=" sent ")
+    assert "error" not in result
+    assert mock_mh.call_args.kwargs["box_type"] is srv.BoxType.SENT
 
 
 def test_get_results_pagination() -> None:
@@ -1823,3 +1831,100 @@ def test_download_planner_file_refuses_save_path_outside_root() -> None:
 def test_download_course_document_refuses_save_path_outside_root() -> None:
     result = srv.download_course_document(1, 2, save_path="..")
     assert "inside the download folder" in result["error"]
+
+
+# ── Input validation and portal pages ─────────────────────────────────────────
+
+
+@pytest.mark.parametrize(("limit", "offset"), [(0, 0), (-1, 0), (201, 0), (5, -1)])
+def test_paging_bounds_are_checked(limit: int, offset: int) -> None:
+    with (
+        patch("smartschool_mcp.server.Results") as results,
+        patch("smartschool_mcp.server.MessageHeaders") as headers,
+    ):
+        assert "error" in srv.get_results(limit=limit, offset=offset)
+        assert "error" in srv.get_messages(limit=limit, offset=offset)
+    results.assert_not_called()
+    headers.assert_not_called()
+
+
+def test_get_results_survives_a_row_without_owner() -> None:
+    row = MagicMock()
+    row.courses = []
+    row.gradebook_owner = None
+    row.feedback = []
+    with patch("smartschool_mcp.server.Results", return_value=[row]):
+        result = srv.get_results(include_details=False)
+    assert result["results"][0]["teacher"] is None
+
+
+def test_message_body_search_is_capped() -> None:
+    headers = [
+        SimpleNamespace(id=i, subject="geen match", from_="x") for i in range(60)
+    ]
+    fetched: list[int] = []
+
+    def _message(_session, msg_id):
+        fetched.append(msg_id)
+        return MagicMock(get=MagicMock(return_value=SimpleNamespace(body="")))
+
+    with (
+        patch("smartschool_mcp.server.MessageHeaders", return_value=headers),
+        patch("smartschool_mcp.server.Message", side_effect=_message),
+    ):
+        result = srv.get_messages(search_query="toets")
+
+    assert len(fetched) == srv._MAX_BODY_SEARCH
+    assert result["body_search_truncated"] is True
+    assert result["messages"] == []
+
+
+@pytest.mark.parametrize(
+    ("from_date", "to_date"),
+    [("2026-05-10", "2026-05-01"), ("2026-01-01", "2028-01-01")],
+)
+def test_planner_window_rejects_bad_ranges(from_date: str, to_date: str) -> None:
+    with patch("smartschool_mcp.server.fetch_calendar") as fetch:
+        result = srv.get_planned_elements(from_date=from_date, to_date=to_date)
+    assert "error" in result
+    fetch.assert_not_called()
+
+
+def _file_response(content: bytes, content_type: str, url: str = "") -> MagicMock:
+    resp = MagicMock()
+    resp.ok = True
+    resp.content = content
+    resp.url = url or "https://school.smartschool.be/file"
+    resp.headers = {"Content-Type": content_type}
+    return resp
+
+
+def test_portal_page_detection() -> None:
+    login = _file_response(
+        b"<html>", "text/html", "https://school.smartschool.be/login"
+    )
+    assert srv._portal_page_instead_of_file(login, "application/pdf")
+    html = _file_response(b"<!DOCTYPE html><html>", "application/octet-stream")
+    assert srv._portal_page_instead_of_file(html, "application/pdf")
+    pdf = _file_response(b"%PDF-1.7", "application/pdf")
+    assert not srv._portal_page_instead_of_file(pdf, "application/pdf")
+    attached_html = _file_response(b"<html>", "text/html")
+    assert not srv._portal_page_instead_of_file(attached_html, "text/html")
+
+
+def test_download_attachment_refuses_login_page(download_root) -> None:
+    att = MagicMock(spec=Attachment)
+    att.file_id = 42
+    att.name = "report.pdf"
+    att.mime = "application/pdf"
+    session = MagicMock()
+    session.get.return_value = _file_response(
+        b"<html>login</html>", "text/html", "https://school.smartschool.be/login"
+    )
+    with (
+        patch("smartschool_mcp.server.Attachments", return_value=[att]),
+        patch("smartschool_mcp.server._session", return_value=session),
+    ):
+        result = srv.download_attachment(999, 42)
+    assert "web page instead of the file" in result["error"]
+    assert not list(download_root.iterdir())
