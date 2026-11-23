@@ -38,7 +38,7 @@ CI runs lint → typecheck → tests (Python 3.10–3.13) in that order. All thr
 
 The package is a single-file MCP server (`smartschool_mcp/server.py`) plus entry-point modules:
 
-- **`server.py`** — all MCP tool definitions with `@mcp.tool()` decorators; uses `FastMCP("Smartschool MCP")` as the server instance
+- **`server.py`** — all MCP tool definitions with `@_tool` decorators (a threaded `mcp.tool()` wrapper); uses `FastMCP("Smartschool MCP")` as the server instance
 - **`__main__.py`** — CLI entry point handling transport selection (stdio vs streamable-http)
 - **`auth.py`** — OAuth 2.1 provider for universal mode (multi-user)
 - **`main.py`** — backward-compatibility shim (deprecated)
@@ -78,7 +78,7 @@ The upstream library (`github.com/svaningelgem/smartschool`, pinned via `uv.lock
 
 1. Find the corresponding class in the [smartschool library](https://github.com/svaningelgem/smartschool)
 2. Add the import to `server.py`
-3. Decorate with `@mcp.tool()` and call `_session()` inside the function body
+3. Decorate with `@_tool` (registers it with `mcp`, runs it in a worker thread) and call `_session()` inside the function body
 4. Wrap the entire body in `try / except Exception as e` and return `{"error": f"Failed to ...: {e}"}` (or `[{"error": ...}]` for list returns)
 5. Use built-in generics (`list[dict[str, Any]]`, `str | None`) — not `typing.List` / `typing.Optional`
 6. Add tests in `tests/test_tools.py`
@@ -106,12 +106,14 @@ All HTTP logic lives in `_run_http()` inside `__main__.py`. Keep uvicorn and sta
 
 ## Versioning and releases
 
-Bump `version` in three places (they must match):
-- `pyproject.toml`
+Bump `version` in these places (they must match):
+- `pyproject.toml` (then `uv lock`)
+- `manifest.json`
+- `scripts/build_mcpb.py` (`_DEFAULT_VERSION`)
 - `smartschool_mcp/__init__.py`
-- `server.json`
+- `claude-plugin/.claude-plugin/plugin.json`
 
-Releases are fully automated via GitHub Actions — create a GitHub Release (tag `vX.Y.Z`) and the `publish.yml` workflow builds and publishes to PyPI + MCP Registry.
+Distribution is the Claude Desktop `.mcpb` only — create a GitHub Release (tag `vX.Y.Z`) and `mcpb.yml` attaches `smartschool-mcp-<version>.mcpb`. Nothing goes to PyPI or the MCP Registry.
 
 ## Commit conventions
 

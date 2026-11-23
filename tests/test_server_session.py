@@ -83,7 +83,7 @@ def test_cached_app_session_uses_credentials_cache() -> None:
             side_effect=lambda **kwargs: kwargs,
         ) as mock_creds,
         patch(
-            "smartschool_mcp.server.GuardedSession", return_value="app-session"
+            "smartschool_mcp.server.MemoryGuardedSession", return_value="app-session"
         ) as mock_ss,
     ):
         first = srv._cached_app_session("user", "pass", "school.smartschool.be", "")
@@ -133,7 +133,7 @@ def test_session_uses_oauth_credentials_when_available() -> None:
     mock_env.assert_not_called()
 
 
-def test_session_falls_back_to_env_when_cred_key_missing() -> None:
+def test_session_refuses_env_fallback_when_cred_key_missing() -> None:
     srv = _reload_server_module()
 
     with (
@@ -145,12 +145,12 @@ def test_session_falls_back_to_env_when_cred_key_missing() -> None:
             srv, "_cached_app_session", return_value="oauth-session"
         ) as mock_cached,
         patch.object(srv, "_env_session", return_value="env-session") as mock_env,
+        pytest.raises(srv.AuthenticationError, match="no Smartschool login"),
     ):
-        result = srv._session()
+        srv._session()
 
-    assert result == "env-session"
     mock_cached.assert_not_called()
-    mock_env.assert_called_once()
+    mock_env.assert_not_called()
 
 
 def test_session_falls_back_to_env_when_import_error() -> None:

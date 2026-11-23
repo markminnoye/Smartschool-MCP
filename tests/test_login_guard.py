@@ -233,23 +233,40 @@ def test_open_env_session_blocked_by_auth_failed(
         server._open_env_session()
 
 
-def test_cached_app_session_blocked_by_auth_failed(
+def test_cached_app_session_blocked_by_memory_lockout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server._session_cache.clear()
+    monkeypatch.setattr(guard, "_memory_lockouts", guard.TTLCache(16, 60))
+    guard._memory_lockouts[guard._memory_key("child", "school.smartschool.be")] = True
+
+    def _boom(_creds):
+        raise AssertionError("session created")
+
+    monkeypatch.setattr(server, "MemoryGuardedSession", _boom)
+    with pytest.raises(SmartSchoolAuthenticationError, match="15 minuten"):
+        server._cached_app_session(
+            "child", "secret", "school.smartschool.be", "2014-01-02"
+        )
+
+
+def test_cached_app_session_ignores_the_file_lockout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Universal mode: a stale auth_failed file from the public form is ignored."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(guard, "_memory_lockouts", guard.TTLCache(16, 60))
     server._session_cache.clear()
     failed = tmp_path / ".cache" / "smartschool" / "school" / "child" / "auth_failed"
     failed.parent.mkdir(parents=True)
     failed.write_text("login failed\n", encoding="utf-8")
 
-    def _boom(_creds):
-        raise AssertionError("session created")
+    session = server._cached_app_session(
+        "child", "secret", "school.smartschool.be", "2014-01-02"
+    )
 
-    monkeypatch.setattr(server, "GuardedSession", _boom)
-    with pytest.raises(SmartSchoolAuthenticationError, match="auth_failed"):
-        server._cached_app_session(
-            "child", "secret", "school.smartschool.be", "2014-01-02"
-        )
+    assert isinstance(session, guard.MemoryGuardedSession)
+    server._session_cache.clear()
 
 
 def test_server_instructions_name_the_child(
@@ -315,3 +332,92 @@ def _guard(tmp_path: Path) -> guard.GuardedSession:
     creds.validate = _validate.__get__(creds)
     assert tmp_path.exists()
     return guard.GuardedSession(creds)
+
+
+def test_network_error_during_login_does_not_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import requests
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    calls: list[str] = []
+
+    def _super_login(self, response):
+        calls.append(response.url)
+        if len(calls) == 1:
+            raise requests.ConnectionError("wifi gone")
+        return SimpleNamespace(url="https://school.smartschool.be/account-verification")
+
+    monkeypatch.setattr(Smartschool, "_do_login", _super_login)
+    session = _guard(tmp_path)
+    login_page = SimpleNamespace(url="https://school.smartschool.be/login")
+
+    with pytest.raises(requests.ConnectionError):
+        session._do_login(login_page)
+    assert not (
+        tmp_path / ".cache" / "smartschool" / "school" / "child" / "auth_failed"
+    ).exists()
+
+    # The next try posts again and gets through.
+    posted = session._do_login(login_page)
+    assert posted.url.endswith("/account-verification")
+    assert len(calls) == 2
+
+
+def _memory_guard(username: str = "child") -> guard.MemoryGuardedSession:
+    creds = SimpleNamespace(
+        username=username,
+        password="wrong",
+        main_url="school.smartschool.be",
+        mfa="2014-01-02",
+    )
+    creds.validate = (lambda self: None).__get__(creds)
+    return guard.MemoryGuardedSession(creds)
+
+
+def test_memory_guard_blocks_in_memory_without_a_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(guard, "_memory_lockouts", guard.TTLCache(16, 60))
+    posts: list[str] = []
+
+    def _super_login(self, response):
+        posts.append(response.url)
+        return SimpleNamespace(url="https://school.smartschool.be/login?error=1")
+
+    monkeypatch.setattr(Smartschool, "_do_login", _super_login)
+    login_page = SimpleNamespace(url="https://school.smartschool.be/login")
+
+    with pytest.raises(SmartSchoolAuthenticationError, match="15 minuten"):
+        _memory_guard()._do_login(login_page)
+    assert guard.memory_lockout_active("CHILD", "school.smartschool.be")
+    assert not list(tmp_path.rglob("auth_failed"))
+
+    # A fresh session for the same login is refused before posting again.
+    with pytest.raises(SmartSchoolAuthenticationError, match="15 minuten"):
+        _memory_guard()._do_login(login_page)
+    assert len(posts) == 1
+    # Another user is not affected.
+    assert not guard.memory_lockout_active("other", "school.smartschool.be")
+
+
+def test_memory_lockout_expires(monkeypatch: pytest.MonkeyPatch) -> None:
+    now = [1000.0]
+    cache = guard.TTLCache(16, 60, timer=lambda: now[0])
+    monkeypatch.setattr(guard, "_memory_lockouts", cache)
+    cache[guard._memory_key("child", "school.smartschool.be")] = True
+    assert guard.memory_lockout_active("child", "school.smartschool.be")
+    now[0] += 61
+    assert not guard.memory_lockout_active("child", "school.smartschool.be")
+
+
+@pytest.mark.parametrize("username", ["../../etc", "a/b", "..", "x\\y"])
+def test_cache_dir_fallback_keeps_username_in_one_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, username: str
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    root = tmp_path / ".cache" / "smartschool"
+    path = guard.cache_dir(username, "school.example.com")
+    assert path.parent == root / "school.example.com"
+    assert path.resolve().is_relative_to(root.resolve())

@@ -8,9 +8,10 @@ Supports two transports:
 
 Environment variables (all overridable by CLI flags):
   MCP_TRANSPORT   stdio | streamable-http  (default: stdio)
-  MCP_HOST        bind address for HTTP    (default: 0.0.0.0)
+  MCP_HOST        bind address for HTTP    (default: 127.0.0.1)
   MCP_PORT        port for HTTP            (default: 8000)
-  MCP_API_KEY     optional Bearer token (single-user mode only)
+  MCP_API_KEY     Bearer token (single-user mode only). Required when
+                  MCP_HOST is not a loopback address.
   MCP_UNIVERSAL   set to 1 to enable universal mode
   MCP_ISSUER_URL  public URL of the server (required for universal mode)
 
@@ -61,8 +62,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--host",
-        default=os.environ.get("MCP_HOST", "0.0.0.0"),
-        help="Bind host for HTTP transport (default: 0.0.0.0)",
+        default=os.environ.get("MCP_HOST", "127.0.0.1"),
+        help=(
+            "Bind host for HTTP transport (default: 127.0.0.1). "
+            "A non-loopback host needs MCP_API_KEY or --universal."
+        ),
     )
     parser.add_argument(
         "--port",
@@ -114,6 +118,15 @@ def _run_http(
     """
     import uvicorn
     from starlette.middleware.cors import CORSMiddleware
+
+    if not universal and not os.environ.get("MCP_API_KEY") and not _is_loopback(host):
+        # Single-user mode serves one parent's Smartschool account. Without a
+        # key, anyone who can reach the port can read it: the Host-header
+        # check only stops browsers, not a client that sends Host: localhost.
+        raise SystemExit(
+            f"Refusing to listen on {host} without authentication. "
+            "Set MCP_API_KEY, use --universal (OAuth), or bind to 127.0.0.1."
+        )
 
     # Stateless + JSON responses are recommended for production HTTP deployments.
     mcp.settings.stateless_http = True
@@ -204,6 +217,19 @@ def _run_http(
 
     print(f"[smartschool-mcp] Listening on http://{host}:{port}/mcp")
     uvicorn.run(app, host=host, port=port)
+
+
+def _is_loopback(host: str) -> bool:
+    """True for ``localhost`` and loopback IPs (``127.0.0.0/8``, ``::1``)."""
+    import ipaddress
+
+    text = host.strip().strip("[]").lower()
+    if text == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(text).is_loopback
+    except ValueError:
+        return False
 
 
 # ---------------------------------------------------------------------------
