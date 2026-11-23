@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- PyPI and MCP Registry publishing (`publish.yml`, `server.json`). The Claude Desktop `.mcpb` on GitHub Releases is the only distribution channel. A PyPI wheel cannot carry the pinned `smartschool` fork, so it would have installed a different library than the one tested.
+
 ### Security
 
 - Downloads (`download_attachment`, `download_course_document`, `download_planner_file`, `download_homepage_image`) only write inside the download folder: `SMARTSCHOOL_DOWNLOAD_DIR`, default `~/Downloads/smartschool`. `save_path` is now a subfolder of it; paths outside it (absolute, `..`, symlinks) are refused. Files are created with `O_EXCL`, so an existing file or planted symlink is never written through.
@@ -15,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Universal mode: an OAuth token without a Smartschool login is refused instead of falling back to the server's own account.
 - Lockout cache folders keep an unusual username inside one directory (no `/`, `\` or `..`).
 - Downloads refuse a Smartschool web page (expired session, login redirect) instead of saving it under the file's name.
-- CI pins every action to a commit SHA, installs with `uv sync --locked`, and the registry publish step pins `mcp-publisher` v1.8.16 with a sha256 check (the old download URL no longer matched the release assets).
+- CI pins every action to a commit SHA, installs with `uv sync --locked`.
 
 ### Fixed
 

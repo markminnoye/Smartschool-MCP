@@ -106,12 +106,14 @@ All HTTP logic lives in `_run_http()` inside `__main__.py`. Keep uvicorn and sta
 
 ## Versioning and releases
 
-Bump `version` in three places (they must match):
-- `pyproject.toml`
+Bump `version` in these places (they must match):
+- `pyproject.toml` (then `uv lock`)
+- `manifest.json`
+- `scripts/build_mcpb.py` (`_DEFAULT_VERSION`)
 - `smartschool_mcp/__init__.py`
-- `server.json`
+- `claude-plugin/.claude-plugin/plugin.json`
 
-Releases are fully automated via GitHub Actions — create a GitHub Release (tag `vX.Y.Z`) and the `publish.yml` workflow builds and publishes to PyPI + MCP Registry.
+Distribution is the Claude Desktop `.mcpb` only — create a GitHub Release (tag `vX.Y.Z`) and `mcpb.yml` attaches `smartschool-mcp-<version>.mcpb`. Nothing goes to PyPI or the MCP Registry.
 
 ## Commit conventions
 

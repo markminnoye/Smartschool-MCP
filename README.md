@@ -1,10 +1,7 @@
 # Smartschool MCP Server
 
-<!-- mcp-name: io.github.MauroDruwel/smartschool-mcp -->
-
 [![CI](https://github.com/MauroDruwel/Smartschool-MCP/actions/workflows/ci.yml/badge.svg)](https://github.com/MauroDruwel/Smartschool-MCP/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/MauroDruwel/Smartschool-MCP/branch/main/graph/badge.svg)](https://codecov.io/gh/MauroDruwel/Smartschool-MCP)
-[![PyPI version](https://img.shields.io/pypi/v/smartschool-mcp)](https://pypi.org/project/smartschool-mcp/)
 [![License: MIT](https://img.shields.io/github/license/MauroDruwel/Smartschool-MCP)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
 
@@ -50,20 +47,24 @@ The bundle vendors `markminnoye/smartschool` at `517de70` and starts the existin
 
 ## Quick start — Claude Desktop
 
-Save the account once in `~/.config/smartschool/credentials.json` (the same file the Claude plugin and Grok plugin use). The server reads it when the process has no `SMARTSCHOOL_USERNAME` and `SMARTSCHOOL_PASSWORD`. Set `GROK_PLUGIN_DATA` to store that file in another directory. `SMARTSCHOOL_PROFILE` picks one login when several are saved. Each profile's `children` list stores a name and, when known, the `account_id` and `platform` returned by `get_children`.
+Parents: install the `.mcpb` from [GitHub Releases](https://github.com/markminnoye/Smartschool-MCP/releases) (see above). That is the only distribution channel. This version is not published on PyPI or in the MCP Registry; the `smartschool-mcp` package on PyPI is an older upstream release without these changes.
+
+Developers can run the server from a checkout. Save the account once in `~/.config/smartschool/credentials.json` (the same file the Claude plugin and Grok plugin use). The server reads it when the process has no `SMARTSCHOOL_USERNAME` and `SMARTSCHOOL_PASSWORD`. Set `GROK_PLUGIN_DATA` to store that file in another directory. `SMARTSCHOOL_PROFILE` picks one login when several are saved. Each profile's `children` list stores a name and, when known, the `account_id` and `platform` returned by `get_children`.
 
 ```bash
-uvx mcp install smartschool-mcp
+git clone https://github.com/markminnoye/Smartschool-MCP.git
+cd Smartschool-MCP
+uv sync
 ```
 
-Or add it manually to `claude_desktop_config.json` without a second copy of the password:
+Then add it to `claude_desktop_config.json` without a second copy of the password:
 
 ```json
 {
   "mcpServers": {
     "smartschool": {
-      "command": "uvx",
-      "args": ["smartschool-mcp"]
+      "command": "uv",
+      "args": ["--directory", "/path/to/Smartschool-MCP", "run", "smartschool-mcp"]
     }
   }
 }

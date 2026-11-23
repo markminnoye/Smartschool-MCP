@@ -97,7 +97,7 @@ tests/
 .github/
 ├── workflows/
 │   ├── ci.yml       # Lint, typecheck, test matrix (Python 3.10–3.13)
-│   └── publish.yml  # Build, publish to PyPI + MCP Registry on release
+│   └── mcpb.yml     # Pack the Claude Desktop .mcpb; attach it to a release
 ├── ISSUE_TEMPLATE/  # Structured bug/feature templates
 └── PULL_REQUEST_TEMPLATE.md
 ```
@@ -179,13 +179,13 @@ PR titles should also follow this format — the CI checks it.
 
 ## Release Process
 
-Releases are fully automated via GitHub Actions:
+The only distribution channel is the Claude Desktop `.mcpb` on GitHub
+Releases. Nothing is published to PyPI or the MCP Registry.
 
-1. Bump `version` in `pyproject.toml`, `smartschool_mcp/__init__.py`, and
-   `server.json` — all three must match.
+1. Bump `version` in `pyproject.toml`, `manifest.json`,
+   `scripts/build_mcpb.py` (`_DEFAULT_VERSION`), `smartschool_mcp/__init__.py`
+   and `claude-plugin/.claude-plugin/plugin.json`, and run `uv lock`.
 2. Update `CHANGELOG.md`: move `[Unreleased]` entries under a new version heading.
 3. Open a PR, get it merged to `main`.
-4. Create a GitHub Release (tag `vX.Y.Z`) — the `publish.yml` workflow then:
-   - Builds the wheel and sdist with `uv build`
-   - Publishes to PyPI via OIDC trusted publishing (no API key needed)
-   - Publishes to the MCP Registry
+4. Create a GitHub Release (tag `vX.Y.Z`) — the `mcpb.yml` workflow builds
+   `smartschool-mcp-<version>.mcpb` and attaches it to that release.
