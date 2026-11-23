@@ -72,6 +72,13 @@ Een geslaagde test toont gegevens uit Smartschool. Een leeg antwoord kan kloppen
 | Welke links voor leerlingenbegeleiding zijn er? (`get_student_support_links`) | De zichtbare links van de school. |
 | Wat staat er in de kijker op de startpagina? (`get_homepage_blocks`) | Blokken zoals een maandmenu of een aankondiging, vaak met een foto. |
 
+Daarna de prompts (in Claude Desktop bij de extensie-prompts / slash, of door de naam te vragen):
+
+| Prompt | Verwacht resultaat |
+| --- | --- |
+| `ochtendbriefing` (optioneel kind) | Korte Nederlandse standup: vandaag / vanavond / rest van de week. Claude gebruikt de Smartschool-tools. |
+| `weekbriefing` (optioneel kind) | Overzicht van de komende schoolweek: toetsen, meenemen, acties. Geen complete lesurenlijst. |
+
 Pas daarna, als een bericht of een blok een bijlage of foto heeft:
 
 | Vraag | Verwacht resultaat |

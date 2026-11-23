@@ -38,6 +38,7 @@ from smartschool import (
     TopNavCourses,
 )
 
+from smartschool_mcp.briefing_prompts import ochtendbriefing_text, weekbriefing_text
 from smartschool_mcp.credentials import (
     NO_DESKTOP_CREDENTIALS,
     CredentialMixError,
@@ -132,6 +133,18 @@ def _server_instructions() -> str | None:
 
 # MCP server - tools are registered via @mcp.tool() decorators below
 mcp = FastMCP("Smartschool MCP", instructions=_server_instructions())
+
+
+@mcp.prompt()
+def ochtendbriefing(child: str = "") -> str:
+    """Korte Nederlandse ochtendbriefing (standup) voor één kind."""
+    return ochtendbriefing_text(child)
+
+
+@mcp.prompt()
+def weekbriefing(child: str = "") -> str:
+    """Korte Nederlandse weekbriefing voor de komende schoolweek."""
+    return weekbriefing_text(child)
 
 
 class AuthenticationError(RuntimeError):

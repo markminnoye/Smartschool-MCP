@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- MCP prompts `ochtendbriefing` and `weekbriefing` (Claude Desktop / MCP clients): Dutch daily standup and weekly overview that drive the existing Smartschool tools. Declared in `manifest.json` and registered with `@mcp.prompt()`.
+
 ## [0.3.0] - 2026-11-23
 
 ### Added

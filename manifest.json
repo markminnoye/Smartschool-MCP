@@ -118,6 +118,20 @@
       "description": "Download een foto uit een startpaginablok"
     }
   ],
+  "prompts": [
+    {
+      "name": "ochtendbriefing",
+      "description": "Korte Nederlandse ochtendbriefing (standup) voor één kind",
+      "arguments": ["child"],
+      "text": "Je maakt een korte Nederlandse ochtendbriefing (daily standup) voor één kind via de Smartschool-tools. Alleen lezen: stuur, beantwoord of verwijder niets in Smartschool. Stel geen vragen; maak redelijke keuzes. Verzin niets; markeer afgeleide info met (vermoedelijk). Neem nooit wachtwoorden uit berichten over.\n\nKind: als ${arguments.child} is ingevuld, gebruik die naam; anders de naam uit Configure. Roep get_children aan en switch_child naar dat kind als nodig. Blijf op dat kind.\n\nData ophalen:\n1. get_schedule(date_offset=0) — vandaag.\n2. get_planned_elements van vandaag t/m +7 dagen (includes courses,locations als ondersteund) — hoofdbron voor taken en toetsen.\n3. get_future_tasks als aanvulling (mag leeg zijn).\n4. get_messages (inbox, bescheiden limiet, bodies aan) — focus op ~3 dagen of ongelezen.\n5. get_results (kleine limiet) — alleen als er iets nieuws is; bij fout één zin in Varia.\n6. get_homepage_blocks alleen op maandag.\n\nGeen schooldag en niets urgents? Maak dan geen briefing.\n\nOpmaak (Nederlands, geen nummering, lege onderdelen weglaten, max. ongeveer één telefoonscherm):\n- Bovenaan: datum + de allerbelangrijkste zaak van vanochtend.\n- Vandaag: meenemen, staking/vrije dag, toets vandaag, acties die vandaag geld of materiaal vragen.\n- Vanavond zeker: studeren/taken met deadline morgen of overmorgen; toetsen als **Toets [vak] – [naam/onderwerp]**.\n- Rest van de week: stakingen/vrije dagen in vet, toetsen met datum, meenemen, oudercontact.\n- Varia: mededelingen, betalingen, strooibriefjes; nieuwe punten alleen als nieuw.\n\nGeen lesuren of lokalen tenzij nodig. Lever alleen in de chat (geen mail tenzij de gebruiker dat apart vraagt)."
+    },
+    {
+      "name": "weekbriefing",
+      "description": "Korte Nederlandse weekbriefing voor de komende schoolweek",
+      "arguments": ["child"],
+      "text": "Je maakt een korte Nederlandse weekbriefing voor één kind via de Smartschool-tools. Alleen lezen: stuur, beantwoord of verwijder niets in Smartschool. Stel geen vragen; maak redelijke keuzes. Verzin niets; markeer afgeleide info met (vermoedelijk). Neem nooit wachtwoorden uit berichten over.\n\nKind: als ${arguments.child} is ingevuld, gebruik die naam; anders de naam uit Configure. Roep get_children aan en switch_child naar dat kind als nodig. Blijf op dat kind.\n\nData ophalen:\n1. get_planned_elements van vandaag t/m +7 dagen — hoofdbron.\n2. get_schedule voor vandaag (en morgen) als context.\n3. get_future_tasks als aanvulling.\n4. get_messages — berichten die deze week actie vragen.\n5. get_results — recente nieuwe punten.\n6. get_homepage_blocks als relevant.\n\nDoel: overzicht van de komende schoolweek, geen ochtend-standup.\n\nOpmaak (Nederlands, geen nummering, lege onderdelen weglaten):\n- Bovenaan: weekbereik + één zin met het zwaartepunt.\n- Deze week: toetsen en deadlines per dag (vak + naam/onderwerp + datum), chronologisch.\n- Meebrengen & acties: kledij, materiaal, geld, strooibriefjes, inschrijvingen, oudercontact — met de dag.\n- Aandacht / berichten: schoolberichten die deze week nog spelen.\n- Punten: alleen nieuwe of opvallende resultaten.\n\nVet voor stakingen, vrije dagen en toetsen. Geen complete lesurenlijst. Lever alleen in de chat (geen mail tenzij de gebruiker dat apart vraagt)."
+    }
+  ],
   "user_config": {
     "school": {
       "type": "string",

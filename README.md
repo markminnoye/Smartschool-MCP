@@ -44,6 +44,8 @@ The Claude Desktop extension is published by Sonic Rocket. This repository inclu
 
 Parents install a one-click `.mcpb` from the [GitHub Releases](https://github.com/markminnoye/Smartschool-MCP/releases) page. Each published tag builds `smartschool-mcp-<version>.mcpb` and attaches it to that release (Claude Desktop only shows **Update** when the version string changes). Pull-request builds still upload a temporary **MCPB** Actions artifact (`smartschool-mcp-mcpb`) for testers. The Dutch steps, test questions, and login-lockout reset are in [`docs/claude-desktop-test.md`](docs/claude-desktop-test.md).
 
+The bundle also exposes MCP prompts **ochtendbriefing** (daily standup) and **weekbriefing** (coming school week). Pick them in Claude Desktop’s prompt UI (optional `child` argument); Claude then calls the Smartschool tools.
+
 The bundle vendors `markminnoye/smartschool` at `517de70` and starts the existing stdio server with `uv`. Claude Desktop's Configure dialog asks for school, username, password, the child's birth date, and the child's name. On startup those values are saved once into the shared account file (`~/.config/smartschool/credentials.json`, or `$GROK_PLUGIN_DATA/credentials.json`; on macOS the password and birth date go to the Keychain). If that profile is already stored, the store wins and the dialog is not copied again. The child name on the profile is what `get_children` / `switch_child` should select. A failed login writes `~/.cache/smartschool/<subdomain>/<user>/auth_failed` after one password POST — the same marker as the Claude plugin. Saving does not log in.
 
 ## Quick start — Claude Desktop
