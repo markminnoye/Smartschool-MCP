@@ -363,7 +363,7 @@ def test_plugin_manifest_has_no_mcp_server() -> None:
     assert "Geen loginpoging" in skill
     assert "Mijn kinderen" in skill
     assert "daily-briefing" in readme
-    assert manifest["version"] == "1.0.0"
+    assert manifest["version"] == "1.1.0"
 
 
 def test_wrong_password_posts_once(

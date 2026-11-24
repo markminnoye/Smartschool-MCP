@@ -26,7 +26,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SMARTSCHOOL_REQUIREMENT = "smartschool>=0.13.0,<0.14"
-_DEFAULT_VERSION = "1.0.0"
+_DEFAULT_VERSION = "1.1.0"
 
 
 def assert_repo_pin(root: Path = ROOT) -> None:
