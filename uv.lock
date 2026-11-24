@@ -1754,7 +1754,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.26.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.1.1" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15.10" },
-    { name = "smartschool", specifier = ">=0.13.0" },
+    { name = "smartschool", specifier = ">=0.13.0,<0.14" },
     { name = "types-cachetools", marker = "extra == 'dev'", specifier = ">=7.0.0.20260518" },
 ]
 provides-extras = ["dev"]

@@ -241,6 +241,7 @@ def _outcome_from_count(count: int) -> str:
 
 
 def _library_handlers() -> dict[str, Any]:
+    import smartschool as _smartschool
     from smartschool import (
         ApplicableAssignmentTypes,
         Attachments,
@@ -253,7 +254,6 @@ def _library_handlers() -> dict[str, Any]:
         MessageHeaders,
         MyDocs,
         Periods,
-        PinnedPlannedElements,
         PlannedElements,
         Reports,
         Results,
@@ -264,20 +264,24 @@ def _library_handlers() -> dict[str, Any]:
         TopNavCourses,
     )
 
+    pinned_cls = getattr(_smartschool, "PinnedPlannedElements", None)
+
     def take(name: str):
         def handler(ctx: SmokeContext, ep: CatalogEndpoint) -> tuple[int, list[Any]]:
-            cls = {
+            classes: dict[str, Any] = {
                 "ApplicableAssignmentTypes": ApplicableAssignmentTypes,
                 "CourseList": CourseList,
                 "Courses": Courses,
                 "FutureTasks": FutureTasks,
                 "Periods": Periods,
-                "PinnedPlannedElements": PinnedPlannedElements,
                 "PlannedElements": PlannedElements,
                 "SmartschoolHours": SmartschoolHours,
                 "StudentSupportLinks": StudentSupportLinks,
                 "TopNavCourses": TopNavCourses,
-            }[name]
+            }
+            if pinned_cls is not None:
+                classes["PinnedPlannedElements"] = pinned_cls
+            cls = classes[name]
             return _count(cls(ctx.session))
 
         return handler
@@ -426,13 +430,12 @@ def _library_handlers() -> dict[str, Any]:
         items = list(Intradesk(ctx.session))
         return len(items), items
 
-    return {
+    handlers: dict[str, Any] = {
         "ApplicableAssignmentTypes": take("ApplicableAssignmentTypes"),
         "CourseList": take("CourseList"),
         "Courses": take("Courses"),
         "FutureTasks": take("FutureTasks"),
         "Periods": take("Periods"),
-        "PinnedPlannedElements": take("PinnedPlannedElements"),
         "PlannedElements": take("PlannedElements"),
         "SmartschoolHours": take("SmartschoolHours"),
         "StudentSupportLinks": take("StudentSupportLinks"),
@@ -453,6 +456,9 @@ def _library_handlers() -> dict[str, Any]:
         "IntradeskFile": intradesk_file,
         "IntradeskFolder": intradesk_folder,
     }
+    if pinned_cls is not None:
+        handlers["PinnedPlannedElements"] = take("PinnedPlannedElements")
+    return handlers
 
 
 class _SkipPlaceholderError(Exception):

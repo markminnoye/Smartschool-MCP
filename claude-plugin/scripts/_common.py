@@ -518,6 +518,31 @@ def teacher_names(teachers: list[Any] | None) -> list[str]:
     return names
 
 
+def _location_label(loc: object) -> str:
+    """Room title, or the free-text ``text`` field from 0.13.0 locations."""
+    if isinstance(loc, dict):
+        kind = str(loc.get("type") or "").strip()
+        if kind == "text":
+            text = loc.get("text")
+            if isinstance(text, str) and text.strip():
+                return text.strip()
+        for key in ("title", "name", "text"):
+            value = loc.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+    title = getattr(loc, "title", None)
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    text = getattr(loc, "text", None)
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    name = getattr(loc, "name", None)
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    return str(loc)
+
+
 def organiser_names(element: object) -> list[str]:
     organisers = getattr(element, "organisers", None)
     users = getattr(organisers, "users", None) or []
@@ -564,7 +589,7 @@ def planned_element(element: object) -> dict[str, Any]:
         "whole_day": getattr(period, "whole_day", None) if period else None,
         "color": getattr(element, "color", None),
         "courses": [getattr(course, "name", str(course)) for course in courses],
-        "locations": [getattr(loc, "title", str(loc)) for loc in locations],
+        "locations": [label for loc in locations if (label := _location_label(loc))],
         "organisers": organiser_names(element),
         "unconfirmed": getattr(element, "unconfirmed", None),
         "pinned": getattr(element, "pinned", None),

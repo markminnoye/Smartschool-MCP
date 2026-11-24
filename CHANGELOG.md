@@ -15,6 +15,7 @@ en de versienummers volgen [Semantic Versioning](https://semver.org/lang/nl/).
 
 ### Opgelost
 
+- Lessen en taken met een vrij getypte plaats (bijvoorbeeld "thuis") tonen die plaats nu in het rooster en de planner, zowel in de MCP als in de Claude-plugin. Vroeger viel die plaats weg of verscheen er onleesbare tekst.
 - `get_results` gaf bij De Pass bij elke oproep een fout zodra één leerkracht bijlagen bij de feedback had gezet: Smartschool stuurt die bijlagen als object (`{"id", "wopiUrl"}`), de bibliotheek verwacht tekst. De MCP zet ze nu om naar hun id, en elk resultaat toont die ids in `feedback_attachment_ids`.
 
 ### Verwijderd

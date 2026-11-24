@@ -8,7 +8,8 @@
 #   course folders, then again with Meldingen /Profile/Notify; keys merged below)
 # - Chrome HAR docs/portal-api/raw/switch-child-depass-to-dering.har (gitignored), 2026-09-22
 #   Mijn kinderen switch: gotourl → /otp/{token} → relative /Studentcard
-#   (planner-calendar-1to1: omit types by default, PinnedPlannedElements)
+#   MCP calendar GET omits types by default. smartschool 0.13.0 has no
+#   PinnedPlannedElements and no includes on the list call.
 #
 # observed_on: "depass.smartschool.be parent/co-account"
 #              | "dering.smartschool.be parent/co-account"
@@ -28,9 +29,11 @@ endpoints:
     notes: >
       Calendar grid omits `types` and `includes`. Types seen in the unfiltered response:
       planned-lessons, planned-school-activities, planned-lesson-cluster-moments,
-      planned-placeholders, planned-assignments. Library default now matches this GET
-      (optional types/includes). MCP get_schedule and get_planned_elements both call
-      this path.
+      planned-placeholders, planned-assignments. MCP get_schedule and
+      get_planned_elements both call this path as a raw GET. Library 0.13.0
+      PlannedElements defaults to planned-assignments,planned-to-dos; pass
+      element_types=None for the unfiltered grid. The library cannot send includes
+      (upstream issue #237).
 
   - method: GET
     path: /planner/api/v1/planned-elements/user/{userId}
@@ -44,7 +47,8 @@ endpoints:
       Sidebar subset. Observed includes=icon,courses,locations,upload-folders,labels and
       types=planned-to-dos,planned-lesson-cluster-assignments,planned-assignments (also
       planned-generics, planned-lesson-free-days, planned-meetings, planned-school-activities
-      on other filtered calls). Library/MCP pass optional `types` and `includes`.
+      on other filtered calls). MCP passes optional `types` and `includes` on the
+      raw GET. Library 0.13.0 PlannedElements takes element_types (not includes).
 
   - method: GET
     path: /planner/api/v1/planned-elements/pinned
@@ -52,9 +56,11 @@ endpoints:
     body_keys: []
     module: planner
     observed_on: depass.smartschool.be parent/co-account
-    library: PinnedPlannedElements
+    library: unmapped
     mcp_tool: none
-    notes: Observed includes=icon,courses,locations,upload-folders (and labels on this crawl).
+    notes: >
+      Observed includes=icon,courses,locations,upload-folders (and labels on this crawl).
+      smartschool 0.13.0 has no PinnedPlannedElements; smoke uses the raw GET.
 
   - method: GET
     path: /planner/api/v1/calendars/accessible-platform-calendars
@@ -139,7 +145,9 @@ endpoints:
     observed_on: depass.smartschool.be parent/co-account
     library: ApplicableAssignmentTypes
     mcp_tool: none
-    notes: Website spelling is "assignment". Library now uses this path.
+    notes: >
+      Website spelling is "assignment". smartschool 0.13.0 still GETs the
+      historical typo path applicable-assigment-types.
 
   - method: GET
     path: /lesson-content/api/v1/assignments/applicable-assigment-types
@@ -149,7 +157,7 @@ endpoints:
     observed_on: library
     library: unmapped
     mcp_tool: none
-    notes: Historical typo path; library no longer calls this.
+    notes: Historical typo path; smartschool 0.13.0 still GETs this spelling.
 
 
   # --- Courses ---

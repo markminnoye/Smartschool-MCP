@@ -201,6 +201,32 @@ def test_get_planned_elements_omits_types_by_default(mock_session: MagicMock) ->
     assert "includes" not in data
 
 
+def test_calendar_element_reads_free_text_and_room_locations() -> None:
+    from smartschool_mcp.planner_fields import calendar_element_dict
+
+    raw = _planner_raw(
+        locations=[
+            {"type": "mini-db-item", "title": "A12"},
+            {"type": "text", "text": "thuis"},
+            {"type": "mystery"},
+        ]
+    )
+    row = calendar_element_dict(raw)
+    assert row["locations"] == ["A12", "thuis"]
+
+
+def test_planned_element_model_rejects_raw_calendar_fixture() -> None:
+    """0.13.0 PlannedElement requires fields the website calendar omits.
+
+    get_schedule therefore keeps the raw JSON parser in planner_fields.
+    """
+    from pydantic import ValidationError
+    from smartschool import PlannedElement
+
+    with pytest.raises(ValidationError):
+        PlannedElement(**_planner_raw())
+
+
 def test_get_planned_elements_passes_types_and_includes(
     mock_session: MagicMock,
 ) -> None:
@@ -1388,12 +1414,13 @@ def test_percentage_graphic_keeps_blue_and_unknown_colors() -> None:
     blue = PercentageGraphic(
         type="percentage", color="blue", value=80, description="8/10"
     )
-    assert blue.color == "blue"
     assert isinstance(blue.color, GraphicColor)
+    assert blue.color == GraphicColor.BLUE
 
     purple = PercentageGraphic(
         type="percentage", color="purple", value=50, description="5/10"
     )
+    assert isinstance(purple.color, GraphicColor)
     assert purple.color == "purple"
 
     green = PercentageGraphic(
@@ -1403,7 +1430,8 @@ def test_percentage_graphic_keeps_blue_and_unknown_colors() -> None:
     assert green.color == GraphicColor.GREEN
 
     letter = TextGraphic(type="text", color="blue", value="B", description="letter")
-    assert letter.color == "blue"
+    assert isinstance(letter.color, GraphicColor)
+    assert letter.color == GraphicColor.BLUE
 
 
 def test_get_results_accepts_blue_and_unknown_graphic_colors(
@@ -1522,6 +1550,7 @@ def test_get_future_tasks_falls_back_to_planned_assignments() -> None:
     assert second["courses"][0]["tasks"][0]["description"] == "En classe"
     kwargs = mock_planned.call_args.kwargs
     assert kwargs["element_types"] == "planned-assignments"
+    assert "types" not in kwargs
     assert kwargs["from_date"] == today
     assert kwargs["till_date"] == today + timedelta(days=srv._FUTURE_TASKS_HORIZON_DAYS)
 

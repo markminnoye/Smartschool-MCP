@@ -27,7 +27,7 @@ dependencies = [
     "cachetools>=7.1.4",
     "mcp[cli]>=1.28.1,<2",
     "pyotp>=2.9.0,<3",
-    "smartschool>=0.13.0",
+    "smartschool>=0.13.0,<0.14",
 ]
 
 [project.optional-dependencies]

@@ -2508,8 +2508,9 @@ def download_attachment(
         if target_attachment is None:
             return {"error": f"Attachment {file_id} not found in message {message_id}"}
 
-        # The upstream library's Attachment.download() incorrectly base64-decodes the
-        # response; Smartschool actually returns raw binary.  Call the session directly.
+        # Call the session directly so a login HTML page or a non-OK status is
+        # refused before writing. Attachment.download() returns the same bytes
+        # since 0.9, but does not run those checks.
         resp = session.get(f"/?module=Messages&file=download&fileID={file_id}&target=0")
         if not resp.ok:
             return {"error": f"Download failed: HTTP {resp.status_code}"}
