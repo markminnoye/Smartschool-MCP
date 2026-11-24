@@ -347,7 +347,9 @@ def test_plugin_manifest_has_no_mcp_server() -> None:
     assert "daily-briefing" in briefing
     assert "get_children" in briefing
     assert "switch_child" in briefing
-    assert "Vanavond zeker" in briefing
+    assert "Vanavond te doen" in briefing
+    assert "Vanavond zeker" not in briefing
+    assert "get_planner_attachments" in briefing
     assert "mark.minnoye@" not in briefing.lower()
     assert "elliot" not in briefing.lower()
     assert "1083569" not in briefing
@@ -363,7 +365,7 @@ def test_plugin_manifest_has_no_mcp_server() -> None:
     assert "Geen loginpoging" in skill
     assert "Mijn kinderen" in skill
     assert "daily-briefing" in readme
-    assert manifest["version"] == "1.0.0"
+    assert manifest["version"] == "1.1.0"
 
 
 def test_wrong_password_posts_once(

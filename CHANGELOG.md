@@ -7,10 +7,16 @@ en de versienummers volgen [Semantic Versioning](https://semver.org/lang/nl/).
 
 ## [Niet uitgebracht]
 
+## [1.1.0] - 2026-11-24
+
+Deze versie gebruikt de gewone `smartschool`-bibliotheek in plaats van onze eigen fork, en lost twee fouten op: resultaten met bijlagen bij de feedback, en lessen met een vrij getypte plaats. Update in Claude Desktop door het nieuwe `.mcpb`-bestand te openen; je instellingen blijven bewaard.
+
 ### Gewijzigd
 
 - De MCP gebruikt nu de gewone `smartschool`-bibliotheek 0.13.0 van PyPI in plaats van onze eigen fork (`markminnoye/smartschool@517de70`). Daarmee komen de verbeteringen van de afgelopen maanden mee: opnieuw inloggen als een sessie verlopen is, projectresultaten die niet meer mislukken, alle kleuren van cijfers (ook blauw) en een duidelijke fout in plaats van een lege lijst als Smartschool een fout teruggeeft.
 - De Claude Desktop-bundel (`.mcpb`) bevat de bibliotheek niet meer zelf; uv installeert ze bij de installatie van PyPI.
+- De prompts **ochtendbriefing** en **weekbriefing** halen de leerstof en de toetsenwijzers nu op met `get_planner_attachments`. Het rooster en de planner tonen die nooit (`description` is er altijd leeg), dus de briefing meldt niet meer ten onrechte dat er geen leerstof is. Ze vermelden ook nieuwe resultaten met de feedback van de leerkracht, en een nieuw rapport (enkel titel en datum). Ze loggen nooit zelf in op Smartschool.
+- In de ochtendbriefing heet het onderdeel "Vanavond zeker" nu "Vanavond te doen".
 - Cookies en de opgeslagen gebruiker staan nu in dezelfde map als het `auth_failed`-bestand (`~/.cache/smartschool/<school>/<gebruiker>`). Na de update meldt de MCP zich daarom één keer opnieuw aan.
 
 ### Opgelost
@@ -51,5 +57,6 @@ Eerste publieke versie van **Smartschool voor ouders**, de extensie voor Claude 
 - Een Claude Code-plugin in `claude-plugin/` met de Nederlandse skill `daily-briefing` en scripts die alleen lezen.
 - Optioneel transport via Streamable HTTP: luistert standaard op `127.0.0.1` en vraagt `MCP_API_KEY` op elk ander adres. De universele OAuth-modus blokkeert een gebruikersnaam na een geweigerde login 15 minuten, in het geheugen.
 
-[Niet uitgebracht]: https://github.com/markminnoye/Smartschool-MCP/compare/v1.0.0...HEAD
+[Niet uitgebracht]: https://github.com/markminnoye/Smartschool-MCP/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/markminnoye/Smartschool-MCP/releases/tag/v1.1.0
 [1.0.0]: https://github.com/markminnoye/Smartschool-MCP/releases/tag/v1.0.0
