@@ -15,6 +15,8 @@ Deze versie gebruikt de gewone `smartschool`-bibliotheek in plaats van onze eige
 
 - De MCP gebruikt nu de gewone `smartschool`-bibliotheek 0.13.0 van PyPI in plaats van onze eigen fork (`markminnoye/smartschool@517de70`). Daarmee komen de verbeteringen van de afgelopen maanden mee: opnieuw inloggen als een sessie verlopen is, projectresultaten die niet meer mislukken, alle kleuren van cijfers (ook blauw) en een duidelijke fout in plaats van een lege lijst als Smartschool een fout teruggeeft.
 - De Claude Desktop-bundel (`.mcpb`) bevat de bibliotheek niet meer zelf; uv installeert ze bij de installatie van PyPI.
+- De prompts **ochtendbriefing** en **weekbriefing** halen de leerstof en de toetsenwijzers nu op met `get_planner_attachments`. Het rooster en de planner tonen die nooit (`description` is er altijd leeg), dus de briefing meldt niet meer ten onrechte dat er geen leerstof is. Ze vermelden ook nieuwe resultaten met de feedback van de leerkracht, en een nieuw rapport (enkel titel en datum). Ze loggen nooit zelf in op Smartschool.
+- In de ochtendbriefing heet het onderdeel "Vanavond zeker" nu "Vanavond te doen".
 - Cookies en de opgeslagen gebruiker staan nu in dezelfde map als het `auth_failed`-bestand (`~/.cache/smartschool/<school>/<gebruiker>`). Na de update meldt de MCP zich daarom één keer opnieuw aan.
 
 ### Opgelost
