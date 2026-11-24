@@ -1379,12 +1379,16 @@ def _evaluation_payload(
 
 
 def test_percentage_graphic_keeps_blue_and_unknown_colors() -> None:
-    """SR-93: blue and any other unknown color must not fail validation."""
+    """SR-93: blue and any other unknown color must not fail validation.
+
+    smartschool>=0.11.1 lists ``blue`` and turns an unknown color into an
+    ad-hoc ``GraphicColor`` member (with a warning) instead of failing.
+    """
     blue = PercentageGraphic(
         type="percentage", color="blue", value=80, description="8/10"
     )
     assert blue.color == "blue"
-    assert not isinstance(blue.color, GraphicColor)
+    assert isinstance(blue.color, GraphicColor)
 
     purple = PercentageGraphic(
         type="percentage", color="purple", value=50, description="5/10"
@@ -1516,7 +1520,7 @@ def test_get_future_tasks_falls_back_to_planned_assignments() -> None:
     assert second["courses"][0]["name"] == "Frans"
     assert second["courses"][0]["tasks"][0]["description"] == "En classe"
     kwargs = mock_planned.call_args.kwargs
-    assert kwargs["types"] == "planned-assignments"
+    assert kwargs["element_types"] == "planned-assignments"
     assert kwargs["from_date"] == today
     assert kwargs["till_date"] == today + timedelta(days=srv._FUTURE_TASKS_HORIZON_DAYS)
 

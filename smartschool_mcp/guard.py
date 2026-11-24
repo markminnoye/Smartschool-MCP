@@ -3,7 +3,8 @@
 Same rule as the Claude plugin scripts: one credential POST, then
 ``~/.cache/smartschool/<subdomain>/<user>/auth_failed``. That is the cache
 directory of the shared credential store, so the Desktop bundle and the
-plugin share one lockout. A response that stays on ``/login`` (including
+plugin share one lockout. ``GuardedSession.cache_path`` points the library's
+cookie cache at the same directory. A response that stays on ``/login`` (including
 ``/login?error=1``) is a failure. Later calls refuse before another password
 is sent.
 
@@ -221,6 +222,27 @@ class GuardedSession(Smartschool):
 
     _password_posts: int = 0
     _login_failed: bool = False
+
+    @property
+    def cache_path(self) -> Path:  # type: ignore[override]
+        """Keep cookies, cached user and ``auth_failed`` in one directory.
+
+        smartschool>=0.13.0 uses ``~/.cache/smartschool/<main_url>/<user>``;
+        this server and the plugin use ``cache_dir`` (``<subdomain>/<user>``)
+        so a lockout written by either one is seen by both, and removing a
+        profile also removes its cookies.
+        """
+        creds = self.creds
+        username = str(getattr(creds, "username", "") or "")
+        main_url = str(getattr(creds, "main_url", "") or "")
+        if creds is None or not username or not main_url:
+            path = Path.home() / ".cache" / "smartschool"
+        else:
+            path = cache_dir(username, main_url)
+        path.mkdir(parents=True, exist_ok=True)
+        with contextlib.suppress(OSError):
+            os.chmod(path, 0o700)
+        return path
 
     def request(self, method, url, **kwargs):  # type: ignore[override]
         self._refuse_if_blocked()

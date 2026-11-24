@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Build the Claude Desktop ``.mcpb`` and vendor smartschool@517de70.
+"""Build the Claude Desktop ``.mcpb``.
 
-The repo pins that fork as a git dependency. Claude Desktop installs the
-bundle with uv and may not have git, so this script downloads the archive,
-puts it at ``vendor/smartschool``, and points the bundle ``pyproject.toml``
-at that path. Other dependencies stay in the lockfile for uv to install
-from PyPI on the parent's machine (platform wheels such as pydantic).
+The bundle ``pyproject.toml`` depends on the released ``smartschool``
+package from PyPI (the same lower bound as the repo). ``uv lock`` runs on
+the staged tree, and uv installs the locked wheels on the parent's machine.
+No git is needed there.
 
 Pass ``--version`` (or a git tag such as ``v0.3.0``) to stamp both the
 bundle ``manifest.json`` and the staged ``pyproject.toml``. Claude Desktop
@@ -19,29 +18,27 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import shutil
 import subprocess
-import tarfile
 import tempfile
-import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SMARTSCHOOL_REV = "517de70b3bf227e726c1b7e2eb4d670afccc1e1a"
-ARCHIVE_URL = (
-    f"https://github.com/markminnoye/smartschool/archive/{SMARTSCHOOL_REV}.tar.gz"
-)
-_DROP_VENDOR_DIRS = ("tests", ".github", "docs", "dev", ".claude", "scripts")
-_DROP_VENDOR_FILES = ("uv.lock", "sonar-project.properties", "codecov.yml", "restub")
+SMARTSCHOOL_REQUIREMENT = "smartschool>=0.13.0"
 _DEFAULT_VERSION = "1.0.0"
 
 
 def assert_repo_pin(root: Path = ROOT) -> None:
+    """The bundle and the repo must ask for the same ``smartschool``."""
     text = (root / "pyproject.toml").read_text(encoding="utf-8")
-    if 'rev = "517de70"' not in text:
-        raise SystemExit("pyproject.toml no longer pins smartschool rev 517de70")
+    if f'"{SMARTSCHOOL_REQUIREMENT}"' not in text:
+        raise SystemExit(
+            f"pyproject.toml no longer requires {SMARTSCHOOL_REQUIREMENT}; "
+            "update SMARTSCHOOL_REQUIREMENT in scripts/build_mcpb.py"
+        )
+    if "[tool.uv.sources]" in text and "smartschool =" in text:
+        raise SystemExit("pyproject.toml overrides the smartschool source again")
 
 
 def normalize_manifest_version(raw: str) -> str:
@@ -83,7 +80,7 @@ def default_output_path(manifest_version: str | None = None) -> Path:
 
 
 def bundle_pyproject(version: str = _DEFAULT_VERSION) -> str:
-    """Runtime project for the bundle. The fork is a path, not a git clone."""
+    """Runtime project for the bundle; ``smartschool`` comes from PyPI."""
     project_version = pep440_version(version)
     return f"""[project]
 name = "smartschool-mcp"
@@ -94,15 +91,11 @@ dependencies = [
     "cachetools>=7.1.4",
     "mcp[cli]>=1.28.1,<2",
     "pyotp>=2.9.0,<3",
-    "smartschool",
+    "{SMARTSCHOOL_REQUIREMENT}",
 ]
 
 [project.scripts]
 smartschool-mcp = "smartschool_mcp.__main__:main"
-
-[tool.uv.sources]
-# Vendored markminnoye/smartschool@{SMARTSCHOOL_REV}
-smartschool = {{ path = "vendor/smartschool" }}
 
 [build-system]
 requires = ["hatchling"]
@@ -125,46 +118,12 @@ def stamp_manifest_version(manifest_path: Path, version: str) -> str:
     return stamped
 
 
-def _safe_extract(archive: tarfile.TarFile, dest: Path) -> None:
-    dest_resolved = dest.resolve()
-    for member in archive.getmembers():
-        target = (dest / member.name).resolve()
-        if os.path.commonpath([dest_resolved, target]) != str(dest_resolved):
-            raise RuntimeError(f"Refusing archive path {member.name}")
-    extract_kwargs: dict[str, str] = {}
-    if "filter" in tarfile.TarFile.extractall.__code__.co_varnames:
-        extract_kwargs["filter"] = "data"
-    archive.extractall(dest, **extract_kwargs)
-
-
-def download_smartschool(dest: Path) -> Path:
-    """Download the pinned fork archive and return its project root."""
-    dest.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as handle:
-        archive_path = Path(handle.name)
-    try:
-        urllib.request.urlretrieve(ARCHIVE_URL, archive_path)
-        with tarfile.open(archive_path, "r:gz") as archive:
-            _safe_extract(archive, dest)
-    finally:
-        archive_path.unlink(missing_ok=True)
-    extracted = dest / f"smartschool-{SMARTSCHOOL_REV}"
-    if not (extracted / "pyproject.toml").is_file():
-        raise SystemExit(f"Smartschool archive did not contain {extracted}")
-    return extracted
-
-
 def _ignore_package(_directory: str, names: list[str]) -> set[str]:
     return {name for name in names if name == "__pycache__" or name.endswith(".pyc")}
 
 
-def stage_bundle(
-    dest: Path,
-    vendor_project: Path,
-    *,
-    version: str | None = None,
-) -> str:
-    """Fill ``dest`` with the manifest, package, and vendored fork.
+def stage_bundle(dest: Path, *, version: str | None = None) -> str:
+    """Fill ``dest`` with the manifest, icon, and package.
 
     Returns the manifest version written into the staged tree.
     """
@@ -181,16 +140,6 @@ def stage_bundle(
         dest / "smartschool_mcp",
         ignore=_ignore_package,
     )
-    vendor_dest = dest / "vendor" / "smartschool"
-    shutil.copytree(vendor_project, vendor_dest, ignore=_ignore_package)
-    for name in _DROP_VENDOR_DIRS:
-        extra = vendor_dest / name
-        if extra.exists():
-            shutil.rmtree(extra)
-    for name in _DROP_VENDOR_FILES:
-        extra = vendor_dest / name
-        if extra.is_file():
-            extra.unlink()
     if version is None:
         data = json.loads((dest / "manifest.json").read_text(encoding="utf-8"))
         stamped = str(data.get("version") or _DEFAULT_VERSION)
@@ -231,10 +180,8 @@ def pack(staging: Path, output: Path) -> None:
 def build(output: Path, *, version: str | None = None) -> Path:
     assert_repo_pin()
     with tempfile.TemporaryDirectory(prefix="smartschool-mcpb-") as tmp:
-        tmp_path = Path(tmp)
-        vendor = download_smartschool(tmp_path / "src")
-        staging = tmp_path / "bundle"
-        stage_bundle(staging, vendor, version=version)
+        staging = Path(tmp) / "bundle"
+        stage_bundle(staging, version=version)
         # Keep the staged tree only long enough to pack; uv.lock is inside it.
         pack(staging, output)
     return output

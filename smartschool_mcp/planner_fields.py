@@ -1,8 +1,8 @@
 """Planner id, description, and upload-folder parsing.
 
-``PlannedElement`` at ``markminnoye/smartschool@517de70`` keeps ``id`` and
-drops every other unknown key. Captured calendar fixtures have no
-``description`` and no ``uploadFolders``. The website sends
+``PlannedElement`` in ``smartschool`` keeps ``id`` and drops every other
+unknown key, so this module reads the calendar JSON itself. Captured
+calendar fixtures have no ``description`` and no ``uploadFolders``. The website sends
 ``includes=icon,courses,locations,upload-folders,labels``; the JSON names
 below are inferred from that query and from the to-do body key ``publicInfo``.
 They are not verified against a live login.
@@ -17,8 +17,6 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 from typing import Any
-
-from smartschool import convert_to_datetime
 
 PLANNER_ATTACHMENT_INCLUDES = "icon,courses,locations,upload-folders,labels"
 
@@ -286,13 +284,19 @@ def _merge_upload_folders(
 def _fmt_when(value: object) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
-    try:
-        parsed = convert_to_datetime(value)
-    except Exception:
-        return value.strip()
-    if isinstance(parsed, datetime):
+    text = value.strip()
+    for fmt in _WHEN_FORMATS:
+        try:
+            parsed = datetime.strptime(text, fmt)
+        except ValueError:
+            continue
         return parsed.strftime("%Y-%m-%d %H:%M")
-    return value.strip()
+    return text
+
+
+# Same formats the library's (private) ``convert_to_datetime`` tries; the
+# planner sends ISO 8601 with an offset.
+_WHEN_FORMATS = ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M", "%Y-%m-%d")
 
 
 def _names_from_courses(raw: dict[str, Any]) -> list[str]:

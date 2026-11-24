@@ -880,20 +880,6 @@ def get_courses() -> list[dict[str, Any]]:
         return [{"error": _tool_error(e, "Failed to retrieve courses")}]
 
 
-def _install_lenient_grade_colors() -> None:
-    """Accept grade colors the pinned library enum does not list.
-
-    De Pass sends ``blue``. This runs at import so ``PercentageGraphic``
-    validation in this process accepts that color before ``get_results``.
-    """
-    from smartschool_mcp.graphic_color import relax_graphic_colors
-
-    relax_graphic_colors()
-
-
-_install_lenient_grade_colors()
-
-
 _DOCUMENTS_BROWSE_RE = re.compile(
     r"^/Documents/Index/Index/courseID/(\d+)(?:/parentID/\d+)?/ssID/(\d+)$"
 )
@@ -1444,7 +1430,7 @@ def _planner_assignment_days(session: Smartschool) -> list[_DayDict]:
         session,
         from_date=start,
         till_date=end,
-        types=_FUTURE_TASK_PLANNER_TYPES,
+        element_types=_FUTURE_TASK_PLANNER_TYPES,
     ):
         element_type = getattr(element, "planned_element_type", None)
         if element_type not in (None, _FUTURE_TASK_PLANNER_TYPES):
@@ -1602,6 +1588,7 @@ def get_messages(
         # Apply search query: check subject first, only fetch body when subject
         # doesn't match
         body_search_truncated = False
+        cached_bodies: dict[Any, Any] = {}
         if search_query:
             matched = []
             bodies_fetched = 0
@@ -1620,7 +1607,7 @@ def get_messages(
                     full_msg = Message(session, header.id).get()  # type: ignore[abstract, var-annotated]
                     body = (getattr(full_msg, "body", "") or "").lower()
                     if search_query.lower() in body:
-                        header._cached_message = full_msg
+                        cached_bodies[header.id] = full_msg
                         matched.append(header)
                 except Exception:
                     continue
@@ -1650,7 +1637,7 @@ def get_messages(
             }
 
             # Include body if explicitly requested or already cached from search
-            cached = getattr(header, "_cached_message", None)
+            cached = cached_bodies.get(header.id)
             if include_body:
                 try:
                     full_msg = cached or Message(session, header.id).get()  # type: ignore[abstract]
@@ -2539,22 +2526,17 @@ def download_attachment(
 def _parse_html(response: Any) -> Any:
     """Parse an HTML response into a BeautifulSoup tree.
 
-    ``smartschool.bs4_html`` is not exported by every release, so fall back to
-    BeautifulSoup directly rather than failing at import time.
+    ``smartschool`` no longer exports ``bs4_html`` (0.12.0 limited the public
+    API), so parse with BeautifulSoup directly.
     """
+    from bs4 import BeautifulSoup
+
     markup: Any
     if isinstance(response, (str, bytes)):
         markup = response
     else:
         markup = getattr(response, "text", response)
-    try:
-        from smartschool import bs4_html
-
-        return bs4_html(markup)
-    except Exception:
-        from bs4 import BeautifulSoup
-
-        return BeautifulSoup(markup, "html.parser")
+    return BeautifulSoup(markup, "html.parser")
 
 
 def _absolutise(session: Smartschool, url: str) -> str:

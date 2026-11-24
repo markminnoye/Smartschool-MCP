@@ -88,11 +88,11 @@ def test_manifest_tools_match_the_server() -> None:
     assert [tool["name"] for tool in _manifest()["tools"]] == names
 
 
-def test_bundle_pyproject_vendors_the_pinned_fork() -> None:
+def test_bundle_pyproject_uses_released_smartschool() -> None:
     text = build_mcpb.bundle_pyproject()
-    assert build_mcpb.SMARTSCHOOL_REV.startswith("517de70")
-    assert build_mcpb.SMARTSCHOOL_REV in text
-    assert 'path = "vendor/smartschool"' in text
+    assert f'"{build_mcpb.SMARTSCHOOL_REQUIREMENT}"' in text
+    assert "[tool.uv.sources]" not in text
+    assert "vendor" not in text
     assert "git =" not in text
     assert 'version = "1.0.0"' in text
     build_mcpb.assert_repo_pin(ROOT)

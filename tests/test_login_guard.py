@@ -421,3 +421,18 @@ def test_cache_dir_fallback_keeps_username_in_one_folder(
     path = guard.cache_dir(username, "school.example.com")
     assert path.parent == root / "school.example.com"
     assert path.resolve().is_relative_to(root.resolve())
+
+
+def test_cookie_cache_shares_the_auth_failed_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """smartschool>=0.13.0 would use <main_url>/<user>; keep <subdomain>/<user>."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    session = _guard(tmp_path)
+    creds = session.creds
+    assert creds is not None
+    expected = guard.cache_dir(creds.username, creds.main_url)
+    assert session.cache_path == expected
+    assert expected == tmp_path / ".cache" / "smartschool" / "school" / "child"
+    assert guard.auth_failed_path(creds.username, creds.main_url).parent == expected
+    assert session._authenticated_user_file == expected / "authenticated_user.yml"
