@@ -29,6 +29,22 @@ def test_manifest_declares_both_prompts() -> None:
         assert "elliot" not in prompt["text"].lower()
 
 
+def test_prompts_read_study_material_through_planner_attachments() -> None:
+    """The planner lists never carry study material; the detail call does."""
+    for name in ("ochtendbriefing", "weekbriefing"):
+        text = _manifest_prompt(name)["text"]
+        assert "get_planner_attachments" in text
+        assert "get_reports" in text
+        assert "published_date" in text
+        assert "Log nooit zelf in" in text
+
+
+def test_evening_section_is_renamed() -> None:
+    text = _manifest_prompt("ochtendbriefing")["text"]
+    assert "Vanavond te doen" in text
+    assert "Vanavond zeker" not in text
+
+
 def test_runtime_text_matches_manifest_substitution() -> None:
     """Claude Desktop rejects prompts/get that diverge from the template."""
     for name, render in (

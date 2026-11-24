@@ -1708,10 +1708,11 @@ def get_schedule(date_offset: int = 0, includes: str | None = None) -> dict[str,
 
     Returns:
         Dictionary with planned elements for the given date. Each element
-        includes ``id`` and ``description`` (empty when the portal omits it)
-        and ``upload_folders`` when the response contains them. Pass
-        ``includes`` with ``upload-folders`` to ask for attachments. Whether
-        that include adds ``uploadFolders`` is not live-verified.
+        includes ``id``, ``description`` and ``upload_folders``, but on the
+        calendar list those two are always empty (live-checked, whatever the
+        includes). Only ``courses`` and ``locations`` change the response;
+        other names can give an error. For study material and attachments call
+        ``get_planner_attachments`` with the element ``id``.
     """
     try:
         target_date = date.today() + timedelta(days=date_offset)
@@ -1772,6 +1773,8 @@ def get_reports() -> list[dict[str, Any]]:
 
     Returns:
         List of report cards with name, date, class, and school year label.
+        Only titles and dates: the report itself cannot be read through this
+        tool.
     """
     try:
         reports_list = []
@@ -1816,8 +1819,12 @@ def get_planned_elements(
         includes: Optional comma-separated expansions (icon,courses,locations,…)
 
     Returns:
-        Dictionary with planned elements including id, description, dates,
-        courses, assignment types, and upload folders when the payload has them.
+        Dictionary with planned elements including id, dates, courses and
+        assignment types. ``description`` and ``upload_folders`` are always
+        empty on this list (live-checked, whatever the includes); call
+        ``get_planner_attachments`` with the element ``id`` for the study
+        material and attachments. Only ``courses`` and ``locations`` change
+        the response; other include names can give an error.
     """
     try:
         start, end = _planner_window(from_date, to_date, days_ahead)
