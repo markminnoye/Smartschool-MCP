@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1932,3 +1933,64 @@ def test_download_attachment_refuses_login_page(download_root) -> None:
         result = srv.download_attachment(999, 42)
     assert "web page instead of the file" in result["error"]
     assert not list(download_root.iterdir())
+
+
+def _feedback_with_object_attachments(row: dict[str, Any]) -> dict[str, Any]:
+    """De Pass: feedback attachments arrive as objects, not as id strings."""
+    person = row["gradebookOwner"]
+    row["feedbacks"] = [
+        {
+            "attachments": [
+                {"id": "242e6d17-2a8a-4a6e-9c1b-0000000cf7fd", "wopiUrl": None},
+                {"id": "58ece3d2-74a8-4420-8f1c-000000096d33", "wopiUrl": None},
+                "plain-id-still-works",
+            ],
+            "changedAt": "2026-11-17T10:00:00+01:00",
+            "createdAt": "2026-11-17T10:00:00+01:00",
+            "evaluationId": row["identifier"],
+            "id": "fb-1",
+            "student": person,
+            "teacher": person,
+            "text": "Goed gedaan",
+        }
+    ]
+    row["feedback"] = [{"text": "Goed gedaan", "user": person}]
+    return row
+
+
+def test_get_results_accepts_feedback_attachment_objects(
+    mock_session: MagicMock,
+) -> None:
+    """One feedback with ``{"id", "wopiUrl"}`` attachments failed every call."""
+    mock_session.json.return_value = [
+        _feedback_with_object_attachments(
+            _evaluation_payload(color="green", name="Met bijlagen", description="9/10")
+        ),
+        _evaluation_payload(color="green", name="Zonder bijlagen", description="7/10"),
+    ]
+
+    result = srv.get_results(include_details=False)
+
+    assert "error" not in result, result
+    by_name = {row["assignment"]: row for row in result["results"]}
+    assert set(by_name) == {"Met bijlagen", "Zonder bijlagen"}
+    assert by_name["Met bijlagen"]["feedback"] == "Goed gedaan"
+    assert by_name["Met bijlagen"]["feedback_attachment_ids"] == [
+        "242e6d17-2a8a-4a6e-9c1b-0000000cf7fd",
+        "58ece3d2-74a8-4420-8f1c-000000096d33",
+        "plain-id-still-works",
+    ]
+    assert by_name["Zonder bijlagen"]["feedback_attachment_ids"] == []
+
+
+def test_feedback_patch_reaches_every_model_that_embeds_it() -> None:
+    from smartschool._objects import FeedbackFull, ProjectGoal, Result, ResultDetails
+
+    from smartschool_mcp.result_feedback import attachment_ids
+
+    for cls in (FeedbackFull, ProjectGoal, ResultDetails, Result):
+        assert "attachment_ids" in repr(cls.__pydantic_core_schema__), cls
+    assert attachment_ids([{"id": "a", "wopiUrl": None}, "b", {"wopiUrl": "x"}]) == [
+        "a",
+        "b",
+    ]

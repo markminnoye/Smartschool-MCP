@@ -74,6 +74,7 @@ from smartschool_mcp.planner_fields import (
     json_diagnostic,
     planner_download_candidates,
 )
+from smartschool_mcp.result_feedback import relax_feedback_attachments
 from smartschool_mcp.result_stats import (
     detail_diagnostic,
     statistics_from_detail,
@@ -141,6 +142,9 @@ def _server_instructions() -> str | None:
 
 # MCP server - tools are registered via @_tool decorators below
 mcp = FastMCP("Smartschool MCP", instructions=_server_instructions())
+
+# De Pass sends feedback attachments as objects; see result_feedback.py.
+relax_feedback_attachments()
 
 _ToolFn = TypeVar("_ToolFn", bound=Callable[..., Any])
 
@@ -1195,6 +1199,13 @@ def _fetch_evaluation(result: object) -> dict[str, Any] | None:
     return None
 
 
+def _feedback_attachment_ids(result: Any) -> list[str]:
+    ids: list[str] = []
+    for feedback in getattr(result, "feedbacks", None) or []:
+        ids.extend(str(i) for i in getattr(feedback, "attachments", None) or [])
+    return ids
+
+
 @_tool
 def get_results(
     limit: int = 15,
@@ -1272,6 +1283,7 @@ def get_results(
                 "published_date": _safe_format_date(result.availability_date),
                 "counts": result.does_count,
                 "feedback": result.feedback[0].text if result.feedback else "",
+                "feedback_attachment_ids": _feedback_attachment_ids(result),
             }
 
             # Class average/median only when requested. The list payload has

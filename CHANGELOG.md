@@ -13,6 +13,10 @@ en de versienummers volgen [Semantic Versioning](https://semver.org/lang/nl/).
 - De Claude Desktop-bundel (`.mcpb`) bevat de bibliotheek niet meer zelf; uv installeert ze bij de installatie van PyPI.
 - Cookies en de opgeslagen gebruiker staan nu in dezelfde map als het `auth_failed`-bestand (`~/.cache/smartschool/<school>/<gebruiker>`). Na de update meldt de MCP zich daarom één keer opnieuw aan.
 
+### Opgelost
+
+- `get_results` gaf bij De Pass bij elke oproep een fout zodra één leerkracht bijlagen bij de feedback had gezet: Smartschool stuurt die bijlagen als object (`{"id", "wopiUrl"}`), de bibliotheek verwacht tekst. De MCP zet ze nu om naar hun id, en elk resultaat toont die ids in `feedback_attachment_ids`.
+
 ### Verwijderd
 
 - De eigen kleurenpatch voor cijfers: de bibliotheek aanvaardt nu zelf elke kleur.
