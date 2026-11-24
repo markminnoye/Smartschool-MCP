@@ -16,10 +16,6 @@ from _common import (
     open_sessions,
     use_profile_argument,
 )
-from smartschool_mcp.graphic_color import relax_graphic_colors
-
-# Same enum gap as the MCP: De Pass sends graphic.percentage.color "blue".
-relax_graphic_colors()
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

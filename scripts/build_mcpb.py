@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Build the Claude Desktop ``.mcpb`` and vendor smartschool@517de70.
+"""Build the Claude Desktop ``.mcpb`` and vendor smartschool 0.13.0.
 
-The repo pins that fork as a git dependency. Claude Desktop installs the
-bundle with uv and may not have git, so this script downloads the archive,
-puts it at ``vendor/smartschool``, and points the bundle ``pyproject.toml``
-at that path. Other dependencies stay in the lockfile for uv to install
-from PyPI on the parent's machine (platform wheels such as pydantic).
+The repo pins that library on PyPI. Claude Desktop installs the bundle with
+uv, so this script downloads the matching source archive, puts it at
+``vendor/smartschool``, and points the bundle ``pyproject.toml`` at that
+path. Other dependencies stay in the lockfile for uv to install from PyPI
+on the parent's machine (platform wheels such as pydantic).
 
 Pass ``--version`` (or a git tag such as ``v0.3.0``) to stamp both the
 bundle ``manifest.json`` and the staged ``pyproject.toml``. Claude Desktop
@@ -29,9 +29,9 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SMARTSCHOOL_REV = "517de70b3bf227e726c1b7e2eb4d670afccc1e1a"
+SMARTSCHOOL_REV = "bd98fd075b57ce6a59523ac841c82f44a88740ac"
 ARCHIVE_URL = (
-    f"https://github.com/markminnoye/smartschool/archive/{SMARTSCHOOL_REV}.tar.gz"
+    f"https://github.com/svaningelgem/smartschool/archive/{SMARTSCHOOL_REV}.tar.gz"
 )
 _DROP_VENDOR_DIRS = ("tests", ".github", "docs", "dev", ".claude", "scripts")
 _DROP_VENDOR_FILES = ("uv.lock", "sonar-project.properties", "codecov.yml", "restub")
@@ -40,8 +40,10 @@ _DEFAULT_VERSION = "1.0.0"
 
 def assert_repo_pin(root: Path = ROOT) -> None:
     text = (root / "pyproject.toml").read_text(encoding="utf-8")
-    if 'rev = "517de70"' not in text:
-        raise SystemExit("pyproject.toml no longer pins smartschool rev 517de70")
+    if "smartschool==0.13.0" not in text:
+        raise SystemExit("pyproject.toml no longer pins smartschool==0.13.0")
+    if "markminnoye/smartschool" in text or 'rev = "' in text:
+        raise SystemExit("pyproject.toml still pins a git fork of smartschool")
 
 
 def normalize_manifest_version(raw: str) -> str:
@@ -101,7 +103,7 @@ dependencies = [
 smartschool-mcp = "smartschool_mcp.__main__:main"
 
 [tool.uv.sources]
-# Vendored markminnoye/smartschool@{SMARTSCHOOL_REV}
+# Vendored svaningelgem/smartschool@{SMARTSCHOOL_REV}
 smartschool = {{ path = "vendor/smartschool" }}
 
 [build-system]
@@ -138,7 +140,7 @@ def _safe_extract(archive: tarfile.TarFile, dest: Path) -> None:
 
 
 def download_smartschool(dest: Path) -> Path:
-    """Download the pinned fork archive and return its project root."""
+    """Download the pinned smartschool archive and return its project root."""
     dest.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as handle:
         archive_path = Path(handle.name)
@@ -164,7 +166,7 @@ def stage_bundle(
     *,
     version: str | None = None,
 ) -> str:
-    """Fill ``dest`` with the manifest, package, and vendored fork.
+    """Fill ``dest`` with the manifest, package, and vendored smartschool.
 
     Returns the manifest version written into the staged tree.
     """

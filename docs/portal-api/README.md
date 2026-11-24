@@ -41,7 +41,7 @@ Each `catalog.yml` record:
 
 Optional extra: `xml_action` when several XML commands share one dispatcher path.
 
-Library pin used for this seed: `svaningelgem/smartschool` git commit `5bb98a86` (installed dist reports `0.7.0`).
+Library pin used for this seed was `svaningelgem/smartschool` git commit `5bb98a86`. The MCP now pins PyPI `0.13.0` (`bd98fd07`).
 
 ## Module status
 
@@ -91,7 +91,7 @@ Every visible parent/co-account nav module from the playbook is now `catalogued`
 
 1. Open **Mijn documenten** (`/mydoc/api/v1/…`) if that tab exists beside Intradesk (still library-only).
 2. Export HAR into `docs/portal-api/raw/` and merge sanitized rows if mydocs differs from the library paths.
-3. Phase 4 (Planner 1-to-1 in the library + MCP tools) is implemented locally; mydocs can land later. The library branch still needs a GitHub push/PR to `svaningelgem/smartschool`.
+3. Planner calendar tools in this MCP stay on the raw website GET. Remaining library gaps (`includes`, pinned elements, the assignment-types path) belong in a later upstream PR, not a second fork. Mydocs can land later.
 
 Do **not** commit the HAR. Do **not** crawl the portal from ad-hoc scripts. The opt-in smoke test [`scripts/smoke_portal.py`](../../scripts/smoke_portal.py) is the exception: same login+cookies as the MCP, read-only, no bodies.
 

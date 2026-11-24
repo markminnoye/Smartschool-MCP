@@ -44,7 +44,7 @@ Choose one profile with `--profile` or `SMARTSCHOOL_PROFILE` (`dering` when uniq
 
 Do not print, quote, or invent the password or birth date. Do not read `credentials.json` back into the chat.
 
-Scripts import that library. Use the pin already in this repo (`pyproject.toml` / `uv.lock`, git rev `517de70`). Do not add a second dependency.
+Scripts import that library. Use the pin already in this repo (`pyproject.toml` / `uv.lock`, `smartschool==0.13.0`). Do not add a second dependency.
 
 When this plugin directory lives inside the Smartschool-MCP checkout:
 

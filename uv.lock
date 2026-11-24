@@ -1706,8 +1706,8 @@ wheels = [
 
 [[package]]
 name = "smartschool"
-version = "0.7.0"
-source = { git = "https://github.com/markminnoye/smartschool.git?rev=517de70#517de70b3bf227e726c1b7e2eb4d670afccc1e1a" }
+version = "0.13.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bs4" },
     { name = "logprise" },
@@ -1715,6 +1715,10 @@ dependencies = [
     { name = "pydantic", version = "2.13.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "pyyaml" },
     { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/75/55/979c24606bb2005e1db45ae904eeb81159b1acea64cb3aac6f20ac37d5ea/smartschool-0.13.0.tar.gz", hash = "sha256:a0e3edc88a41395a086c885cd482d700106b9f8b54e786810fd4bc39fbf53f60", size = 68476, upload-time = "2026-11-22T17:41:47.946Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/34/2e/c515d257779b37fa173c833e70fcb5291a845347c00f819e2d9e7330ab24/smartschool-0.13.0-py3-none-any.whl", hash = "sha256:0b8ce77d82b4c8ec97d3bbfaf8ab155156f67de29c6ea06371c6d1617778490d", size = 86793, upload-time = "2026-11-22T17:41:46.651Z" },
 ]
 
 [[package]]
@@ -1750,7 +1754,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.26.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.1.1" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15.10" },
-    { name = "smartschool", git = "https://github.com/markminnoye/smartschool.git?rev=517de70" },
+    { name = "smartschool", specifier = "==0.13.0" },
     { name = "types-cachetools", marker = "extra == 'dev'", specifier = ">=7.0.0.20260518" },
 ]
 provides-extras = ["dev"]

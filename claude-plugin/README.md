@@ -115,4 +115,4 @@ Each script prints JSON. `"error"` means the call failed (missing config, login,
 | `results.py` | `get_results` | Grades, optional course filter |
 | `courses.py` | `get_courses` | Course names and teachers |
 
-`schedule.py` uses `PlannedElements` (the website timetable). It does not call the removed Schoolagenda XML API.
+`schedule.py` uses the same raw Planner calendar GET as `get_schedule`. It does not call the removed Schoolagenda XML API.

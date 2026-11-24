@@ -7,6 +7,16 @@ en de versienummers volgen [Semantic Versioning](https://semver.org/lang/nl/).
 
 ## [Niet uitgebracht]
 
+### Gewijzigd
+
+- De `smartschool`-bibliotheek komt van PyPI `0.13.0` (tag `bd98fd07`), niet langer van de fork `markminnoye/smartschool@517de70`. Het `.mcpb` vendor die wheel-bron. `get_schedule` en `get_planned_elements` blijven de ruwe Planner-calendar-GET gebruiken (inclusief optionele `includes`), omdat 0.13.0 `PlannedElements` standaard alleen opdrachten en to-dos haalt en `description` / `uploadFolders` weggooit.
+- `get_future_tasks` geeft de planner-fallback `element_types=planned-assignments` (0.13.0 heeft geen `types=`).
+- Vrije-tekstlocaties (`type=text`) tonen het veld `text`; een lokaal blijft `title`.
+
+### Verwijderd
+
+- De runtime-patch `graphic_color.py` voor onbekende cijferkleuren. 0.13.0 accepteert `blue` en maakt van andere namen ad-hoc-leden. `download_attachment` blijft `session.get` gebruiken zodat een loginpagina of een foute HTTP-status geweigerd wordt.
+
 ## [1.0.0] - 2026-11-23
 
 Eerste publieke versie van **Smartschool voor ouders**, de extensie voor Claude Desktop. De eerdere 0.x-testversies zijn ingetrokken. De extensie bouwt verder op de oorspronkelijke Smartschool MCP van Mauro Druwel en op de portaalbibliotheek [`svaningelgem/smartschool`](https://github.com/svaningelgem/smartschool), allebei met een MIT-licentie.

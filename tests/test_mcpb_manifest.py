@@ -1,4 +1,4 @@
-"""The Claude Desktop bundle manifest matches the server and the fork pin."""
+"""The Claude Desktop bundle manifest matches the server and the library pin."""
 
 from __future__ import annotations
 
@@ -88,10 +88,11 @@ def test_manifest_tools_match_the_server() -> None:
     assert [tool["name"] for tool in _manifest()["tools"]] == names
 
 
-def test_bundle_pyproject_vendors_the_pinned_fork() -> None:
+def test_bundle_pyproject_vendors_the_pinned_library() -> None:
     text = build_mcpb.bundle_pyproject()
-    assert build_mcpb.SMARTSCHOOL_REV.startswith("517de70")
+    assert build_mcpb.SMARTSCHOOL_REV.startswith("bd98fd07")
     assert build_mcpb.SMARTSCHOOL_REV in text
+    assert "svaningelgem/smartschool" in text
     assert 'path = "vendor/smartschool"' in text
     assert "git =" not in text
     assert 'version = "1.0.0"' in text

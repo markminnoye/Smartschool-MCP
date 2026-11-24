@@ -310,6 +310,15 @@ def test_planned_element_empty_period() -> None:
     assert row["upload_folders"] == []
 
 
+def test_planned_element_reads_free_text_location() -> None:
+    room = SimpleNamespace(title="A12", text=None)
+    free_text = SimpleNamespace(text="thuis")
+    row = planned_element(
+        SimpleNamespace(name="Les", courses=None, locations=[room, free_text])
+    )
+    assert row["locations"] == ["A12", "thuis"]
+
+
 def test_plugin_manifest_has_no_mcp_server() -> None:
     manifest = json.loads(
         (PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")

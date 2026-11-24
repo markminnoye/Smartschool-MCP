@@ -1,15 +1,13 @@
 """Planner id, description, and upload-folder parsing.
 
-``PlannedElement`` at ``markminnoye/smartschool@517de70`` keeps ``id`` and
-drops every other unknown key. Captured calendar fixtures have no
-``description`` and no ``uploadFolders``. The website sends
+``PlannedElement`` in ``smartschool`` 0.13.0 keeps ``id`` and drops every
+other unknown key. Captured calendar fixtures have no ``description`` and no
+``uploadFolders``. The website sends
 ``includes=icon,courses,locations,upload-folders,labels``; the JSON names
 below are inferred from that query and from the to-do body key ``publicInfo``.
-They are not verified against a live login.
-
-A matching library change exists as
-``docs/upstream/planner-item-fields-sr-95.patch`` (local commit
-``3e8fe3b`` on ``planner-item-fields-sr-95``, which could not be pushed).
+They are not verified against a live login. The library list call has no
+``includes`` parameter (upstream issue #237), so this module keeps the raw
+calendar GET instead of constructing ``PlannedElement``.
 """
 
 from __future__ import annotations
@@ -18,7 +16,7 @@ import re
 from datetime import date, datetime
 from typing import Any
 
-from smartschool import convert_to_datetime
+from smartschool._common import convert_to_datetime
 
 PLANNER_ATTACHMENT_INCLUDES = "icon,courses,locations,upload-folders,labels"
 
@@ -49,7 +47,12 @@ def planner_query(
     types: str | None,
     includes: str | None,
 ) -> dict[str, str]:
-    """Same ``from``/``to``/optional ``types``/``includes`` query as PlannedElements."""
+    """Website calendar query: ``from``/``to`` plus optional ``types``/``includes``.
+
+    0.13.0 ``PlannedElements`` maps ``types`` onto ``element_types`` and cannot
+    send ``includes``. Tools that need the unfiltered grid or upload folders
+    keep this raw query.
+    """
     data = {"from": start.isoformat(), "to": end.isoformat()}
     if types:
         data["types"] = types
@@ -311,13 +314,22 @@ def _names_from_courses(raw: dict[str, Any]) -> list[str]:
 
 
 def _location_titles(raw: dict[str, Any]) -> list[str]:
+    """Room titles, plus free-text locations that only send ``text``."""
     locations = raw.get("locations")
     if not isinstance(locations, list):
         return []
     titles: list[str] = []
     for location in locations:
         if isinstance(location, dict):
-            title = _text(location.get("title")) or _text(location.get("name"))
+            kind = _text(location.get("type"))
+            if kind == "text":
+                title = _text(location.get("text"))
+            else:
+                title = (
+                    _text(location.get("title"))
+                    or _text(location.get("name"))
+                    or _text(location.get("text"))
+                )
             if title:
                 titles.append(title)
         elif isinstance(location, str) and location.strip():
@@ -421,7 +433,12 @@ def fetch_calendar_raw(
     types: str | None,
     includes: str | None,
 ) -> list[dict[str, Any]]:
-    """GET the website calendar. One call; does not use PlannedElements."""
+    """GET the website calendar. One call; does not use ``PlannedElements``.
+
+    The 0.13.0 default for ``PlannedElements`` is assignments and to-dos.
+    Passing ``element_types=None`` matches the unfiltered grid, but still
+    drops ``description`` / ``uploadFolders``.
+    """
     payload = session.json(
         f"/planner/api/v1/planned-elements/user/{_user_id(session)}",
         data=planner_query(start, end, types, includes),

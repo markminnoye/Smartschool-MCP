@@ -880,20 +880,6 @@ def get_courses() -> list[dict[str, Any]]:
         return [{"error": _tool_error(e, "Failed to retrieve courses")}]
 
 
-def _install_lenient_grade_colors() -> None:
-    """Accept grade colors the pinned library enum does not list.
-
-    De Pass sends ``blue``. This runs at import so ``PercentageGraphic``
-    validation in this process accepts that color before ``get_results``.
-    """
-    from smartschool_mcp.graphic_color import relax_graphic_colors
-
-    relax_graphic_colors()
-
-
-_install_lenient_grade_colors()
-
-
 _DOCUMENTS_BROWSE_RE = re.compile(
     r"^/Documents/Index/Index/courseID/(\d+)(?:/parentID/\d+)?/ssID/(\d+)$"
 )
@@ -1444,7 +1430,7 @@ def _planner_assignment_days(session: Smartschool) -> list[_DayDict]:
         session,
         from_date=start,
         till_date=end,
-        types=_FUTURE_TASK_PLANNER_TYPES,
+        element_types=_FUTURE_TASK_PLANNER_TYPES,
     ):
         element_type = getattr(element, "planned_element_type", None)
         if element_type not in (None, _FUTURE_TASK_PLANNER_TYPES):
@@ -1620,7 +1606,7 @@ def get_messages(
                     full_msg = Message(session, header.id).get()  # type: ignore[abstract, var-annotated]
                     body = (getattr(full_msg, "body", "") or "").lower()
                     if search_query.lower() in body:
-                        header._cached_message = full_msg
+                        header._cached_message = full_msg  # type: ignore[attr-defined]
                         matched.append(header)
                 except Exception:
                     continue
@@ -2509,8 +2495,9 @@ def download_attachment(
         if target_attachment is None:
             return {"error": f"Attachment {file_id} not found in message {message_id}"}
 
-        # The upstream library's Attachment.download() incorrectly base64-decodes the
-        # response; Smartschool actually returns raw binary.  Call the session directly.
+        # Call the session directly so a login HTML page or a non-OK status is
+        # refused before writing. Attachment.download() returns the same bytes
+        # since 0.9, but does not run those checks.
         resp = session.get(f"/?module=Messages&file=download&fileID={file_id}&target=0")
         if not resp.ok:
             return {"error": f"Download failed: HTTP {resp.status_code}"}
@@ -2548,7 +2535,7 @@ def _parse_html(response: Any) -> Any:
     else:
         markup = getattr(response, "text", response)
     try:
-        from smartschool import bs4_html
+        from smartschool import bs4_html  # type: ignore[attr-defined]
 
         return bs4_html(markup)
     except Exception:

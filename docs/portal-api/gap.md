@@ -2,23 +2,23 @@
 
 Observation only. No MCP tool changes in this round. Upstream PRs wait until every **visible** nav module is `catalogued` from a live crawl ([README.md](README.md)). The list at the bottom is a **draft priority**, not work to open now.
 
-Sources: HAR `docs/portal-api/raw/dering.smartschool.be.har` (gitignored), overwritten 2026-09-17. First capture: `depass.smartschool.be` + `dering.smartschool.be`. Second capture: De Ring–only Intradesk / Zoeken / Vakken course folders. Third capture: De Ring Meldingen (`/Profile/Notify`). Library: `svaningelgem/smartschool` @ `5bb98a86`.
+Sources: HAR `docs/portal-api/raw/dering.smartschool.be.har` (gitignored), overwritten 2026-09-17. First capture: `[REDACTED]` + `dering.smartschool.be`. Second capture: De Ring–only Intradesk / Zoeken / Vakken course folders. Third capture: De Ring Meldingen (`/Profile/Notify`). Library: `svaningelgem/smartschool` 0.13.0 (`bd98fd07`).
 
 ## Same path, different query
 
 | Path | Website | Library | MCP |
 |------|---------|---------|-----|
-| `GET /planner/api/v1/planned-elements/user/{userId}` | Calendar: `from`, `to` only. Other live variants: `from`+`to`+`types`; `from`+`to`+`includes`; sidebar `from`+`to`+`includes`+`types`. Includes seen: `icon,courses,locations,upload-folders,labels`. Filtered types include `planned-to-dos`, `planned-lesson-cluster-assignments`, `planned-assignments`, `planned-generics`, `planned-lesson-free-days`, `planned-meetings`, `planned-school-activities`. | Default: `from`, `to` only. Optional `types` and `includes`. | `get_schedule` (one day) and `get_planned_elements` (range; optional types/includes) |
+| `GET /planner/api/v1/planned-elements/user/{userId}` | Calendar: `from`, `to` only. Other live variants: `from`+`to`+`types`; `from`+`to`+`includes`; sidebar `from`+`to`+`includes`+`types`. Includes seen: `icon,courses,locations,upload-folders,labels`. Filtered types include `planned-to-dos`, `planned-lesson-cluster-assignments`, `planned-assignments`, `planned-generics`, `planned-lesson-free-days`, `planned-meetings`, `planned-school-activities`. | Default: `from`, `to`, `types=planned-assignments,planned-to-dos`. `element_types=None` omits `types`. No `includes` (issue #237). | `get_schedule` (one day) and `get_planned_elements` (range; optional types/includes) via the raw GET |
 | `GET /results/api/v1/evaluations/` | `pageNumber`, `itemsOnPage`, plus UI filters `componentIds`, `courseIds`, `periodIds` | `pageNumber`, `itemsOnPage` only | `get_results` uses the library as-is |
 | `POST /Topnav/Node/getToken` | JSON/form body key `userID` | Not wrapped | none |
 
-This timetable gap is closed in the library and MCP: the unfiltered Planner GET is the roster.
+This timetable gap is closed in the MCP via the raw calendar GET. Library 0.13.0 still defaults to assignments and to-dos; pass `element_types=None` for the roster.
 
 ## Same family, different path
 
 | Website | Library |
 |---------|---------|
-| `/lesson-content/api/v1/assignments/applicable-assignment-types` | `/lesson-content/api/v1/assignments/applicable-assignment-types` |
+| `/lesson-content/api/v1/assignments/applicable-assignment-types` | `/lesson-content/api/v1/assignments/applicable-assigment-types` (typo; 0.13.0 still uses this) |
 | `/results/api/v1/reports/` (trailing slash) | `/results/api/v1/reports` |
 | `/intradesk/api/v1/{platformId}/directory-listing/forTreeOnlyFolders` (root, no id) | Library always appends `/{folderId}` (empty string for root → trailing slash) |
 
@@ -126,7 +126,7 @@ Do not invent extra MCP tools from the leftover catalog (calendars, labels, …)
 | MCP tool | Library | Website timetable? |
 |----------|---------|--------------------|
 | `get_schedule` | calendar JSON, same query as `PlannedElements` (one day, no `types`) | **Yes** — same calendar GET as the website. `id` is on every fixture. `description` and `uploadFolders` are **not** in the fixtures |
-| `get_future_tasks` | `FutureTasks` (Agenda JSON), then Planner `types=planned-assignments` when that list is empty | Legacy first; Planner assignments on De Pass |
+| `get_future_tasks` | `FutureTasks` (Agenda JSON), then Planner `element_types=planned-assignments` when that list is empty | Legacy first; Planner assignments on De Pass |
 | `get_planned_elements` | calendar JSON, same query as `PlannedElements` (optional `types` / `includes`) | **Yes** — default matches the calendar |
 | `get_planner_attachments` / `download_planner_file` | same calendar GET with `includes=icon,courses,locations,upload-folders,labels`; assignment detail GET when an assignment row has neither description nor folders, and again for `include_raw` | Include list matches the website. Assignment detail can carry `attachments[]` (`id`, `fileName`, `fileSize`, `mimeType`, `visibility`) and a separate `uploadFolder`, with no file URL. Download follows a same-host URL from the payload when one is present. Otherwise it GETs unverified attachment routes (`/planner/api/v1/planned-assignments/{platformId}/{assignmentId}/attachments/{attachmentId}` with and without `/download`, plus planned-elements variants) and then older `/files/` guesses, same host, GET only, stop at the first file. `include_raw=true` returns key names, URL-like fields, and safe attachment values (`id`, `mimeType`, `visibility`; not file names). `live_verified` stays false |
 | `get_course_documents` / `download_course_document` | `TopNavCourses` + `FolderItem` | Documenten HTML listing and `/Documents/Download/Index/...` (library fixtures; live on De Ring). Not planner upload folders |
@@ -137,21 +137,22 @@ Do not invent extra MCP tools from the leftover catalog (calendars, labels, …)
 | `get_homepage_blocks` / `download_homepage_image` | none (HTML `GET /`) | Live Start page; homepage dispatcher XML is extra and unmapped |
 | `get_children` | none (`POST /Studentcard/Student/getStudents`) | Mijn kinderen list |
 | `switch_child` | none (`GET /Studentcard/Chain/gotourl/accountID/{accountId}`) | Mijn kinderen switch |
-| *(none)* | — | Calendars, labels, group-filters, timetable SPA, studentcard widgets, LVS, forms, photos, contact-moments, Intradesk, Zoeken, Uploadzone, video-call, Meldingen (`/Profile/Notify`). Pinned elements are wrapped as `PinnedPlannedElements` (no extra MCP tool). |
+| *(none)* | — | Calendars, labels, group-filters, timetable SPA, studentcard widgets, LVS, forms, photos, contact-moments, Intradesk, Zoeken, Uploadzone, video-call, Meldingen (`/Profile/Notify`). Pinned elements have no library class in 0.13.0 and no extra MCP tool. |
 
 When changing planner tools: mirror the website query (`from`, `to`, optional `types`, optional `includes`) and pass through `plannedElementType` / `period` rather than reshaping into Agenda names.
 
 ## Draft upstream list
 
-Items 1–4 and 7–8 of the original Phase 4 list are done locally (library clone + this MCP). Remaining:
+This MCP pins `smartschool==0.13.0` and keeps the raw calendar GET. Remaining library gaps:
 
-1. ~~`PlannedElements` 1-to-1 with the calendar GET~~
-2. ~~Wire docs for types seen on the wire~~
-3. ~~Pinned endpoint `GET /planner/api/v1/planned-elements/pinned`~~ (`PinnedPlannedElements`; no extra MCP tool)
-4. ~~Fix `ApplicableAssignmentTypes` path~~
+1. `PlannedElements` default still filters to assignments and to-dos (MCP omits `types` itself).
+2. ~~Wire docs for types seen on the wire~~ (0.13.0 docstrings cover more types).
+3. Pinned endpoint `GET /planner/api/v1/planned-elements/pinned` — 0.13.0 has no `PinnedPlannedElements`.
+4. Fix `ApplicableAssignmentTypes` path (`applicable-assigment-types` typo).
 5. **Calendars, labels, group-filters** as thin clients of the catalogued paths (needed for a faithful Planner shell; lower than the roster GET).
 6. **Results list query** — optional `componentIds`, `courseIds`, `periodIds`; reports trailing slash.
-7. ~~Mark Agenda XML + `FutureTasks` as deprecated~~ (library docs)
-8. ~~Bump this repo’s `smartschool` pin, then change MCP tools~~
+7. ~~Mark Agenda XML + `FutureTasks` as deprecated~~ (library docs in 0.13.0).
+8. ~~Bump this repo’s `smartschool` pin, then change MCP tools~~ (`==0.13.0`; calendar tools stay on the raw GET).
+9. `includes` on the list call (upstream issue #237) and `uploadFolder` on the model.
 
 Not in scope for upstream: partner OAuth API, SOAP `/Webservices/V3`, wrapping `getToken`, committing fixtures with student JSON.

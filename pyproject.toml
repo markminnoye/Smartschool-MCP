@@ -27,7 +27,7 @@ dependencies = [
     "cachetools>=7.1.4",
     "mcp[cli]>=1.28.1,<2",
     "pyotp>=2.9.0,<3",
-    "smartschool>=0.8.0",
+    "smartschool==0.13.0",
 ]
 
 [project.optional-dependencies]
@@ -48,9 +48,6 @@ Issues = "https://github.com/markminnoye/Smartschool-MCP/issues"
 
 [project.scripts]
 smartschool-mcp = "smartschool_mcp.__main__:main"
-
-[tool.uv.sources]
-smartschool = { git = "https://github.com/markminnoye/smartschool.git", rev = "517de70" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["smartschool_mcp"]
