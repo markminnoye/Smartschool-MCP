@@ -1,0 +1,70 @@
+name: Claude Desktop extension
+
+# Builds the .mcpb next to the PyPI release. On a published release the file
+# is attached to it; on a pull request that touches the bundle it is only
+# built, validated and kept as a workflow artifact.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - manifest.json
+      - scripts/build_mcpb.py
+      - .github/workflows/mcpb.yml
+
+concurrency:
+  group: mcpb-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pack:
+    name: Pack .mcpb
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # gh release upload; pull requests only upload an artifact
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install the mcpb CLI
+        run: npm install -g @anthropic-ai/mcpb@2.1.2
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            RAW="${{ github.event.release.tag_name }}"
+          else
+            RAW="$(python3 -c 'import json; print(json.load(open("manifest.json"))["version"])')"
+          fi
+          echo "version=${RAW#v}" >> "$GITHUB_OUTPUT"
+          echo "tag=${RAW}" >> "$GITHUB_OUTPUT"
+
+      - name: Build the bundle
+        run: |
+          python3 scripts/build_mcpb.py \
+            --version "${{ steps.version.outputs.version }}" \
+            --output "dist/smartschool-mcp-${{ steps.version.outputs.version }}.mcpb"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: smartschool-mcp-mcpb
+          path: dist/*.mcpb
+          if-no-files-found: error
+
+      - name: Attach to the GitHub Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ steps.version.outputs.tag }}" \
+            "dist/smartschool-mcp-${{ steps.version.outputs.version }}.mcpb" \
+            --clobber

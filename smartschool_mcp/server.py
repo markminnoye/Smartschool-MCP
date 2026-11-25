@@ -47,6 +47,7 @@ from smartschool_mcp.guard import GuardedSession, MemoryGuardedSession
 from smartschool_mcp.settings import env_credentials
 from smartschool_mcp import content
 from smartschool_mcp.result_feedback import relax_feedback_attachments
+from smartschool_mcp import content, prompts
 
 FastMCP = MCPServer  # Backward compatibility alias
 
@@ -55,6 +56,16 @@ mcp = MCPServer("Smartschool MCP")
 
 # Some schools send feedback attachments as objects; see result_feedback.py.
 relax_feedback_attachments()
+
+
+@mcp.prompt(description=prompts.DESCRIPTIONS["ochtendbriefing"])
+def ochtendbriefing() -> str:
+    return prompts.OCHTENDBRIEFING
+
+
+@mcp.prompt(description=prompts.DESCRIPTIONS["weekbriefing"])
+def weekbriefing() -> str:
+    return prompts.WEEKBRIEFING
 
 
 class AuthenticationError(RuntimeError):
