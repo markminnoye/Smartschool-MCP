@@ -366,7 +366,12 @@ def _clean_child_text(value: object) -> str:
 
 
 def _child_record(item: Mapping[str, Any]) -> dict[str, str] | None:
-    """One stored child. ``account_id`` and ``platform`` match ``get_children``."""
+    """One stored child. ``account_id`` and ``platform`` match ``get_children``.
+
+    ``birth_date`` (``YYYY-MM-DD``) is optional. A school on another platform
+    asks for the birth date of the child you switch to, and the login's own
+    ``mfa`` is only right for the child that login belongs to.
+    """
     name = ""
     for key in ("name", "first_name", "firstName"):
         name = _clean_child_text(item.get(key))
@@ -392,6 +397,12 @@ def _child_record(item: Mapping[str, Any]) -> dict[str, str] | None:
             break
     if platform:
         record["platform"] = platform
+    for key in ("birth_date", "birthDate", "birthdate"):
+        birth = _clean_child_text(item.get(key))
+        if birth:
+            with contextlib.suppress(CredentialStoreError):
+                record["birth_date"] = normalize_birth_date(birth)
+            break
     return record
 
 
@@ -437,6 +448,40 @@ def child_records(raw: Mapping[str, Any]) -> list[dict[str, str]]:
         seen_names.add(record["name"])
         unique.append(record)
     return unique
+
+
+def save_child_birth_date(
+    username: str, account_id: str, name: str, birth_date: str
+) -> bool:
+    """Remember a child's birth date in ``credentials.json`` (``children[]``).
+
+    Matches the stored login by ``username``; returns False when no single
+    login matches. An existing child with the same ``account_id`` (or the same
+    name and no ``account_id`` yet) is updated, otherwise one is added. Plain
+    JSON in the private credentials file: the Keychain is only for the login.
+    """
+    birth = normalize_birth_date(birth_date)
+    profiles = load_profiles()
+    hits = [profile for profile in profiles if profile.get("username") == username]
+    if len(hits) != 1:
+        return False
+    children = list(hits[0].get("children") or [])
+    for child in children:
+        if child.get("account_id") == account_id:
+            child["birth_date"] = birth
+            break
+    else:
+        for child in children:
+            if child.get("name") == name and "account_id" not in child:
+                child.update({"account_id": account_id, "birth_date": birth})
+                break
+        else:
+            children.append(
+                {"name": name, "account_id": account_id, "birth_date": birth}
+            )
+    hits[0]["children"] = child_records({"children": children})
+    _write_profiles(profiles)
+    return True
 
 
 def child_name_list(account: Mapping[str, Any]) -> list[str]:

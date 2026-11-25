@@ -7,6 +7,15 @@ en de versienummers volgen [Semantic Versioning](https://semver.org/lang/nl/).
 
 ## [Niet uitgebracht]
 
+### Nieuw
+
+- `switch_child` kan nu wisselen naar een kind op een andere school (bijvoorbeeld van De Pass naar De Ring). Die school vraagt de geboortedatum van dat kind. Geef ze mee als `birth_date` (`jjjj-mm-dd`); zodra de school ze aanvaardt, bewaart de MCP ze bij dat kind in `credentials.json` (`children[].birth_date`), zodat ze maar één keer gevraagd wordt.
+
+### Opgelost
+
+- Wisselen naar een kind op een andere school mislukte altijd: de MCP antwoordde met de geboortedatum van het kind waarmee je inlogt, en dat is voor een ander kind fout. De MCP stuurt die datum niet meer naar een andere school en schrijft bij een foute datum geen `auth_failed`-slot meer. Een slot dat een eerdere mislukte wissel achterliet, verdwijnt zodra de wissel lukt.
+- De beschrijving van `get_children` zegt nu wat te doen met een kind dat niet op Mijn kinderen staat: het kan niet gelezen worden en er wordt geen aparte login gevraagd.
+
 ## [1.1.0] - 2026-11-24
 
 Deze versie gebruikt de gewone `smartschool`-bibliotheek in plaats van onze eigen fork, en lost twee fouten op: resultaten met bijlagen bij de feedback, en lessen met een vrij getypte plaats. Update in Claude Desktop door het nieuwe `.mcpb`-bestand te openen; je instellingen blijven bewaard.
