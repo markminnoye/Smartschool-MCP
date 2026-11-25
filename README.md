@@ -11,6 +11,25 @@
 
 Connect Claude (and other MCP clients) to your Smartschool account — ask about grades, assignments, messages, and your schedule in plain language.
 
+## Voor ouders en leerlingen
+
+Met deze MCP-server kan je AI-assistent (zoals Claude) meekijken in Smartschool. Je stelt je vragen in gewone taal, bijvoorbeeld "Wat moet ik morgen meebrengen?", "Welke toetsen komen er deze week?" of "Wat waren de laatste punten?".
+
+- **Ouders** volgen hun kinderen op: planning en toetsen, wat er mee moet, nieuwe punten met de opmerking van de leerkracht, berichten van school en afwezigheden. Met meerdere kinderen wissel je met één vraag.
+- **Leerlingen** volgen hun eigen schoolwerk op: planning en taken, de leerstof voor een toets, hun punten met feedback, en de cursussen en leerpaden van hun vakken.
+
+De server leest alleen; er wordt niets verstuurd of gewijzigd in Smartschool. Je inloggegevens blijven op je eigen computer.
+
+**Het eenvoudigst: Claude Desktop, met één klik.** Download `smartschool-mcp-<versie>.mcpb` bij de laatste [release](https://github.com/MauroDruwel/Smartschool-MCP/releases), open het bestand en vul je schooladres (bv. `mijnschool.smartschool.be`), gebruikersnaam, wachtwoord en geboortedatum in (dd-mm-jjjj; bij een ouderaccount die van je kind). Andere manieren staan hieronder.
+
+## Ways to use it
+
+| | For | How |
+|---|---|---|
+| **Claude Desktop extension** (easiest) | Claude Desktop on macOS or Windows | Download `smartschool-mcp-<version>.mcpb` from the latest [release](https://github.com/MauroDruwel/Smartschool-MCP/releases), open it and fill in school, username, password and birth date. No terminal needed. |
+| **PyPI package** | Any MCP client over stdio: Claude Desktop, Claude Code, Cursor, … | `uvx smartschool-mcp` with the four `SMARTSCHOOL_*` settings, see [Quick start](#quick-start--claude-desktop). |
+| **Remote server** | claude.ai and other clients that connect over HTTP | Host it yourself with `--transport streamable-http`, see [Remote / claude.ai](#remote--claudeai). |
+
 ## Tools
 
 | Tool | What it does |
@@ -39,9 +58,7 @@ Connect Claude (and other MCP clients) to your Smartschool account — ask about
 
 ## Quick start — Claude Desktop
 
-The easiest way: download `smartschool-mcp-<version>.mcpb` from the latest [GitHub Release](https://github.com/MauroDruwel/Smartschool-MCP/releases), open it with Claude Desktop and fill in your school address, username, password and verification answer. Claude Desktop needs [uv](https://docs.astral.sh/uv/) on your computer to run it.
-
-Or install it from PyPI:
+With the extension (see above), Claude Desktop needs [uv](https://docs.astral.sh/uv/) on your computer to run it. Or install it from PyPI:
 
 ```bash
 uvx mcp install smartschool-mcp \
