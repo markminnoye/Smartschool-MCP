@@ -129,6 +129,14 @@
       "description": "Show the content of a leerpad: its sections and steps."
     },
     {
+      "name": "get_children",
+      "description": "List the children linked on Mijn kinderen for this (parent) login."
+    },
+    {
+      "name": "switch_child",
+      "description": "Switch the session to another child linked on Mijn kinderen."
+    },
+    {
       "name": "get_student_support_links",
       "description": "Retrieve student support links and resources."
     },
