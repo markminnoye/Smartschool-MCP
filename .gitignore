@@ -194,11 +194,5 @@ cython_debug/
 .cursorindexingignore
 dev/
 
-# Portal HAR / screenshots (cookies, tokens, student PII)
+# Portal HAR exports hold cookies, names and grades (docs/portal-api/README.md)
 docs/portal-api/raw/
-
-# Local clone of svaningelgem/smartschool (library PRs happen there, not in this repo)
-vendor/
-
-# Legacy plugin account file. Prefer ~/.config/smartschool/credentials.json.
-claude-plugin/config.env

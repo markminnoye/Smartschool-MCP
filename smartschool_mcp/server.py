@@ -6,278 +6,69 @@ messages and more.
 
 from __future__ import annotations
 
-import functools
+import contextlib
 import os
 import re
 import threading
-from collections.abc import Callable
-from datetime import date, datetime, timedelta
-from functools import lru_cache
+from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, TypedDict, TypeVar
-from urllib.parse import urljoin, urlparse
+from typing import Any, TypedDict
+from urllib.parse import urlparse
 
-import anyio
-import anyio.to_thread
 from cachetools import TTLCache, cached
-from mcp.server.fastmcp import FastMCP
-from smartschool._common import fill_form
+from mcp.server.mcpserver import MCPServer
 from smartschool import (
     AppCredentials,
     Attachments,
     BoxType,
-    CourseCondensed,
     Courses,
-    EnvCredentials,
     FolderItem,
     FutureTasks,
+    InternetShortcut,
     Message,
     MessageHeaders,
     Periods,
+    PlannedElement,
     PlannedElements,
     Reports,
     Results,
     Smartschool,
-    SmartSchoolAuthenticationError,
+    SmartschoolLessons,
+    SmartSchoolRequestError,
+    StudentAbsences,
+    StudentNoteDetails,
+    StudentNotes,
     StudentSupportLinks,
     TopNavCourses,
 )
 
-from smartschool_mcp.briefing_prompts import ochtendbriefing_text, weekbriefing_text
-from smartschool_mcp.credentials import (
-    NO_DESKTOP_CREDENTIALS,
-    CredentialMixError,
-    CredentialStoreError,
-    MissingCredentialsError,
-    load_profiles,
-    normalize_birth_date,
-    prepare_server_credentials,
-    save_child_birth_date,
-)
-from smartschool_mcp.filenames import filename_from_response, header_value
-from smartschool_mcp.guard import (
-    GuardedSession,
-    MemoryGuardedSession,
-    auth_failed_message,
-    auth_failed_path,
-    memory_lockout_active,
-    memory_lockout_message,
-    normalize_school_main_url,
-)
-from smartschool_mcp.planner_fields import (
-    ASSIGNMENT_DETAIL_TYPES,
-    PLANNER_ATTACHMENT_INCLUDES,
-    attachment_diagnostic,
-    calendar_element_dict,
-    element_id_or_none,
-    fetch_assignment_detail,
-    fetch_calendar,
-    fetch_calendar_raw,
-    file_download,
-    json_diagnostic,
-    planner_download_candidates,
-)
+from smartschool_mcp import __version__, children, content, prompts
+from smartschool_mcp.guard import GuardedSession, MemoryGuardedSession
 from smartschool_mcp.result_feedback import relax_feedback_attachments
-from smartschool_mcp.result_stats import (
-    detail_diagnostic,
-    statistics_from_detail,
-    statistics_from_payload,
-)
+from smartschool_mcp.settings import env_credentials
 
+FastMCP = MCPServer  # Backward compatibility alias
 
-def _named_child() -> str:
-    """Child name from the shared profile, or from an explicit env override.
+# MCP server - tools are registered via @mcp.tool() decorators below
+# The version shows up in the client's server info, so users can tell builds apart.
+mcp = MCPServer("Smartschool MCP", version=__version__)
 
-    The Desktop bundle does not collect a second password.
-    ``activate_saved_credentials`` copies the saved child into
-    ``SMARTSCHOOL_CHILD``. Instructions are built at import, before that
-    copy, so a single saved profile is read here as well.
-    ``SMARTSCHOOL_CHILD_NAME`` remains a process override for hosts that set it.
-    """
-    for key in ("SMARTSCHOOL_CHILD", "SMARTSCHOOL_CHILD_NAME"):
-        child = " ".join(os.environ.get(key, "").split())
-        if child:
-            return child
-    try:
-        from smartschool_mcp.credentials import (
-            child_name_list,
-            load_profiles,
-            select_profiles,
-        )
-
-        profiles = load_profiles()
-        selector = os.environ.get("SMARTSCHOOL_PROFILE", "").strip()
-        username = (
-            os.environ.get("SMARTSCHOOL_USERNAME", "").strip()
-            or os.environ.get("SMARTSCHOOL_USER", "").strip()
-        )
-        if selector:
-            profiles = select_profiles(profiles, selector)
-        elif username:
-            profiles = [
-                profile
-                for profile in profiles
-                if str(profile.get("username", "")) == username
-            ]
-    except Exception:
-        return ""
-    if len(profiles) != 1:
-        return ""
-    names = child_name_list(profiles[0])
-    if not names:
-        return ""
-    return " ".join(names[0].split())
-
-
-def _server_instructions() -> str | None:
-    """Tell the model which saved child ``switch_child`` should select."""
-    child = _named_child()
-    if not child:
-        return None
-    return (
-        f"The Smartschool account in this session is for the child {child}. "
-        "Before reading the timetable, grades, tasks, or messages, call "
-        "get_children and switch_child to that child when they are not "
-        "already the current child. "
-        "A failed login is stored as auth_failed; do not submit the password again."
-    )
-
-
-# MCP server - tools are registered via @_tool decorators below
-mcp = FastMCP("Smartschool MCP", instructions=_server_instructions())
-
-# De Pass sends feedback attachments as objects; see result_feedback.py.
+# Some schools send feedback attachments as objects; see result_feedback.py.
 relax_feedback_attachments()
 
-_ToolFn = TypeVar("_ToolFn", bound=Callable[..., Any])
 
-# One lock per Smartschool login. A login's session is a shared
-# ``requests.Session`` whose state (cookies, current child, school host) the
-# tools change, so calls for one login run one at a time. Different logins
-# (universal mode) run in parallel.
-_session_locks: dict[object, anyio.Lock] = {}
+@mcp.prompt(description=prompts.DESCRIPTIONS["ochtendbriefing"])
+def ochtendbriefing() -> str:
+    return prompts.OCHTENDBRIEFING
 
 
-def _session_lock_key() -> object:
-    """Key for the login this request uses. Runs on the event loop."""
-    try:
-        from mcp.server.auth.middleware.auth_context import get_access_token
-
-        from smartschool_mcp.auth import get_credentials
-    except ImportError:
-        return "env"
-    access_token = get_access_token()
-    cred_key = getattr(access_token, "cred_key", None)
-    if not isinstance(cred_key, str):
-        return "env"
-    creds = get_credentials(cred_key)
-    if creds is None:
-        return ("token", cred_key)
-    return ("app", creds.username, creds.main_url)
-
-
-def _session_lock() -> anyio.Lock:
-    key = _session_lock_key()
-    lock = _session_locks.get(key)
-    if lock is None:
-        lock = anyio.Lock()
-        _session_locks[key] = lock
-    return lock
-
-
-def _threaded(fn: Callable[..., Any]) -> Callable[..., Any]:
-    """Async wrapper that runs a blocking tool in a worker thread.
-
-    FastMCP calls a sync tool directly on the event loop. Every tool here
-    does blocking HTTP to Smartschool, so one slow call would stall the
-    whole HTTP server (other users, the OAuth login page). The wrapper keeps
-    the original signature (``functools.wraps``), so FastMCP builds the same
-    argument schema. The OAuth access token is a context variable;
-    ``anyio.to_thread.run_sync`` copies the context into the worker thread.
-    """
-
-    @functools.wraps(fn)
-    async def runner(*args: Any, **kwargs: Any) -> Any:
-        async with _session_lock():
-            return await anyio.to_thread.run_sync(
-                functools.partial(fn, *args, **kwargs)
-            )
-
-    return runner
-
-
-def _tool(fn: _ToolFn) -> _ToolFn:
-    """Register ``fn`` as an MCP tool that runs off the event loop.
-
-    The module-level name stays the plain sync function, so tests and other
-    tools can call it directly.
-    """
-    mcp.tool()(_threaded(fn))
-    return fn
-
-
-@mcp.prompt()
-def ochtendbriefing(child: str = "") -> str:
-    """Korte Nederlandse ochtendbriefing (standup) voor één kind."""
-    return ochtendbriefing_text(child)
-
-
-@mcp.prompt()
-def weekbriefing(child: str = "") -> str:
-    """Korte Nederlandse weekbriefing voor de komende schoolweek."""
-    return weekbriefing_text(child)
+@mcp.prompt(description=prompts.DESCRIPTIONS["weekbriefing"])
+def weekbriefing() -> str:
+    return prompts.WEEKBRIEFING
 
 
 class AuthenticationError(RuntimeError):
     """Authentication state is present but credentials are no longer valid."""
-
-
-def _tool_error(exc: Exception, prefix: str) -> str:
-    """Parent-facing credential errors stay Dutch. Other failures keep the prefix."""
-    if isinstance(
-        exc, (MissingCredentialsError, CredentialStoreError, CredentialMixError)
-    ):
-        return str(exc)
-    text = str(exc)
-    if "Please verify and correct these attributes" in text:
-        return NO_DESKTOP_CREDENTIALS
-    return f"{prefix}: {text}"
-
-
-def _open_env_session() -> Smartschool:
-    """Env-var session with a normalised school host and the login lockout.
-
-    A bare subdomain (``dering``) becomes ``dering.smartschool.be``. A pasted
-    ``https://…smartschool.be`` URL is reduced to that host. An existing
-    ``auth_failed`` file refuses before any credential POST.
-    """
-    creds = EnvCredentials()
-    if creds.main_url.strip():
-        from smartschool_mcp.auth import _validate_school_url
-
-        normalized = normalize_school_main_url(creds.main_url)
-        validated = _validate_school_url(normalized)
-        if not validated:
-            raise ValueError("Untrusted or invalid Smartschool host")
-        object.__setattr__(creds, "main_url", validated)
-    username = creds.username.strip()
-    if username and auth_failed_path(username, creds.main_url).exists():
-        raise SmartSchoolAuthenticationError(
-            auth_failed_message(username, creds.main_url)
-        )
-    return GuardedSession(creds)
-
-
-@lru_cache(maxsize=1)
-def _env_session() -> Smartschool:
-    """Cached session using environment-variable credentials (single-user mode).
-
-    Lazy-initialized on first tool invocation so that import-time errors
-    (missing env vars, network failures) surface as tool errors rather than
-    crashing the process on startup.
-    """
-    prepare_server_credentials()
-    return _open_env_session()
 
 
 # How long (seconds) a cached Smartschool session is reused before the next
@@ -289,6 +80,89 @@ _session_cache: TTLCache[tuple[str, str, str, str], Smartschool] = TTLCache(
     maxsize=256, ttl=_SESSION_TTL_SECONDS
 )
 _session_cache_lock = threading.Lock()
+
+_env_session_cache: TTLCache[tuple[()], Smartschool] = TTLCache(
+    maxsize=1, ttl=_SESSION_TTL_SECONDS
+)
+_env_session_lock = threading.Lock()
+
+
+@cached(cache=_env_session_cache, lock=_env_session_lock)
+def _env_session() -> Smartschool:
+    """TTL-cached session using environment-variable credentials.
+
+    Lazy-initialized on first tool invocation so that import-time errors
+    (missing env vars, network failures) surface as tool errors rather than
+    crashing the process on startup.
+
+    The TTL matters most in stdio mode, where a single long-lived process
+    would otherwise reuse one session object for days.  See
+    ``_ensure_live_session`` for why an expired cookie is not self-healing.
+    """
+    # Checked and tidied first: a typo must not cost a login attempt.
+    return GuardedSession(env_credentials())
+
+
+# Path segments Smartschool redirects to when a session is not authenticated.
+# Mirrors ``smartschool.Smartschool._is_auth_url`` without depending on a
+# private API.
+_AUTH_PATH_SEGMENTS = frozenset({"login", "account-verification", "2fa"})
+
+# Attribute used to remember the liveness-probe outcome on a session object,
+# so the probe runs once per cached session rather than once per tool call.
+_PROBE_RESULT_ATTR = "_mcp_liveness_probe"
+
+
+def _is_auth_url(url: str) -> bool:
+    """Return True if *url* is one of Smartschool's authentication pages."""
+    return bool(_AUTH_PATH_SEGMENTS & set(urlparse(url).path.split("/")))
+
+
+def _ensure_live_session(session: Smartschool) -> Smartschool:
+    """Verify *session* is really authenticated, re-logging in if it is not.
+
+    ``Smartschool.ensure_authenticated()`` is not a liveness check: it only
+    asks whether an ``authenticated_user`` record exists, and
+    ``Smartschool.__post_init__`` restores that record from
+    ``<cache>/authenticated_user.yml`` on every new instance.  A session whose
+    persisted cookie has expired server-side therefore still reports itself as
+    authenticated.
+
+    That stays invisible for REST endpoints, which redirect to ``/login`` so
+    that ``Session.request`` transparently drives the login chain and retries.
+    But the XML dispatcher backing messages, attachments and future tasks
+    answers an unauthenticated POST with an **empty 200**, which the library
+    reads as an empty result set -- so those tools report an empty mailbox
+    instead of an error.
+
+    One plain ``GET /`` closes the gap: it goes through ``Session.request``, so
+    a dead cookie triggers the real login chain while a live one costs a single
+    request and no login.  The outcome is remembered on the session object, so
+    a failure is re-raised for the rest of that session's TTL instead of
+    re-attempting a login on every tool call.
+    """
+    probe = getattr(session, _PROBE_RESULT_ATTR, None)
+    if probe is None:
+        try:
+            response = session.get("/")
+            probe = (
+                AuthenticationError(
+                    "Smartschool session is not authenticated; check the "
+                    f"SMARTSCHOOL_* credentials (landed on {response.url!r})"
+                )
+                if _is_auth_url(response.url)
+                else False
+            )
+        except Exception as exc:
+            # Remembered and re-raised below, so one bad login is not retried
+            # on every subsequent tool call.
+            probe = exc
+        with contextlib.suppress(AttributeError):
+            setattr(session, _PROBE_RESULT_ATTR, probe)
+
+    if isinstance(probe, BaseException):
+        raise probe
+    return session
 
 
 @cached(cache=_session_cache, lock=_session_cache_lock)
@@ -306,11 +180,7 @@ def _cached_app_session(
     validated_host = _validate_school_url(main_url)
     if not validated_host:
         raise ValueError("Untrusted or invalid Smartschool host")
-    if memory_lockout_active(username, validated_host):
-        raise SmartSchoolAuthenticationError(memory_lockout_message())
 
-    # Universal mode: the lockout expires and lives in memory, like the
-    # login form's (see MemoryGuardedSession).
     return MemoryGuardedSession(
         AppCredentials(
             username=username,
@@ -336,26 +206,21 @@ def _session() -> Smartschool:
         from smartschool_mcp.auth import get_credentials
 
         access_token = get_access_token()
-        if access_token is not None:
-            cred_key = getattr(access_token, "cred_key", None)
-            if not isinstance(cred_key, str):
-                # An authenticated request must never fall back to the
-                # process-wide account from the environment.
-                raise AuthenticationError(
-                    "OAuth token has no Smartschool login; re-authentication required"
-                )
-            creds = get_credentials(cred_key)
+        if access_token is not None and hasattr(access_token, "cred_key"):
+            creds = get_credentials(access_token.cred_key)  # type: ignore[attr-defined]
             if creds is None:
                 raise AuthenticationError(
                     "OAuth credentials expired; re-authentication required"
                 )
-            return _cached_app_session(
-                creds.username, creds.password, creds.main_url, creds.mfa
+            return _ensure_live_session(
+                _cached_app_session(
+                    creds.username, creds.password, creds.main_url, creds.mfa
+                )
             )
     except ImportError:
         pass
 
-    return _env_session()
+    return _ensure_live_session(_env_session())
 
 
 def _safe_get_teacher_names(
@@ -383,548 +248,7 @@ def _safe_format_date(date_obj: Any) -> str | None:
         return None
 
 
-def _csv_or_none(value: str | None) -> str | None:
-    if value is None:
-        return None
-    stripped = value.strip()
-    return stripped or None
-
-
-_ACCOUNT_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-_GOTOURL_RE = re.compile(
-    r"/Studentcard/Chain/gotourl/accountID/([A-Za-z0-9_-]+)"
-    r"""[^>]*>\s*(?:<img\b[^>]*>\s*)?<span>([^<]+)</span>""",
-    re.IGNORECASE | re.DOTALL,
-)
-_STUDENTCARD_XHR_HEADERS = {
-    "X-Requested-With": "XMLHttpRequest",
-    "Accept": "application/json",
-}
-_CHILD_LIST_KEYS = (
-    "students",
-    "children",
-    "accounts",
-    "items",
-    "data",
-    "results",
-    "list",
-)
-
-
-def _pick(data: dict[str, Any], *keys: str) -> Any:
-    for key in keys:
-        if key in data and data[key] not in (None, ""):
-            return data[key]
-    return None
-
-
-def _string_field(data: dict[str, Any], *keys: str) -> str | None:
-    value = _pick(data, *keys)
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return None
-
-
-def _safe_account_id(account_id: str | int) -> str | None:
-    stripped = str(account_id).strip()
-    if not stripped or stripped == "0" or not _ACCOUNT_ID_RE.fullmatch(stripped):
-        return None
-    return stripped
-
-
-def _as_child_records(payload: Any) -> list[dict[str, Any]]:
-    """Unwrap POST /Studentcard/Student/getStudents into a list of dicts."""
-    if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, dict)]
-    if not isinstance(payload, dict):
-        return []
-    for key in _CHILD_LIST_KEYS:
-        inner = payload.get(key)
-        if isinstance(inner, list):
-            return [item for item in inner if isinstance(item, dict)]
-    if any(
-        key in payload
-        for key in ("accountID", "accountId", "account_id", "firstName", "lastName")
-    ):
-        return [payload]
-    return []
-
-
-def _first_name_value(data: dict[str, Any]) -> str | None:
-    first = _string_field(data, "firstName", "first_name", "voornaam")
-    if first:
-        return first
-    name = data.get("name")
-    if isinstance(name, str) and name.strip():
-        return name.strip()
-    return None
-
-
-def _person_name(data: dict[str, Any]) -> str | None:
-    bin_name = _string_field(data, "fullNameBIN", "full_name_bin")
-    if bin_name:
-        return bin_name
-    first = _first_name_value(data)
-    last = _string_field(data, "lastName", "last_name", "surname", "naam")
-    if first and last:
-        return f"{first} {last}".strip()
-    full = _string_field(data, "fullName", "full_name")
-    if full:
-        return full
-    name = data.get("name")
-    if isinstance(name, dict):
-        nested = _pick(
-            name,
-            "starting_with_first_name",
-            "startingWithFirstName",
-            "firstName",
-        )
-        if isinstance(nested, str) and nested.strip():
-            return nested.strip()
-        nested = _pick(
-            name,
-            "starting_with_last_name",
-            "startingWithLastName",
-            "lastName",
-        )
-        if isinstance(nested, str) and nested.strip():
-            return nested.strip()
-        return None
-    if first:
-        return first
-    if last:
-        return last
-    return None
-
-
-def _person_dict(data: dict[str, Any]) -> dict[str, Any]:
-    """Map a Studentcard / authenticatedUser object to stable MCP fields."""
-    account_id = _safe_account_id(
-        _pick(data, "accountID", "accountId", "account_id") or ""
-    )
-    user_id = _pick(data, "id", "userID", "userId", "user_id")
-    return {
-        "account_id": account_id,
-        "user_id": None if user_id is None else str(user_id),
-        "username": _pick(data, "username", "userName", "user_name"),
-        "name": _person_name(data),
-        "first_name": _first_name_value(data),
-        "last_name": _string_field(data, "lastName", "last_name", "surname"),
-        "class_name": _string_field(data, "className", "class_name", "class", "klas"),
-        "platform": _pick(
-            data,
-            "platform",
-            "platformUrl",
-            "platform_url",
-            "mainUrl",
-            "main_url",
-        ),
-        "is_current": _pick(
-            data, "isCurrentUser", "isCurrent", "is_current", "current"
-        ),
-    }
-
-
-def _empty_person(
-    *,
-    account_id: str | None = None,
-    name: str | None = None,
-    first_name: str | None = None,
-) -> dict[str, Any]:
-    return {
-        "account_id": account_id,
-        "user_id": None,
-        "username": None,
-        "name": name,
-        "first_name": first_name,
-        "last_name": None,
-        "class_name": None,
-        "platform": None,
-        "is_current": None,
-    }
-
-
-def _children_from_topnav(html: str) -> list[dict[str, Any]]:
-    """Parse Mijn kinderen switch links from the Studentcard HTML shell."""
-    children: list[dict[str, Any]] = []
-    if not isinstance(html, str) or not html:
-        return children
-    seen: set[str] = set()
-    for match in _GOTOURL_RE.finditer(html):
-        account_id = _safe_account_id(match.group(1))
-        first_name = match.group(2).strip()
-        if not account_id or not first_name or account_id in seen:
-            continue
-        seen.add(account_id)
-        children.append(
-            _empty_person(
-                account_id=account_id,
-                name=first_name,
-                first_name=first_name,
-            )
-        )
-    return children
-
-
-def _merge_topnav_children(
-    json_children: list[dict[str, Any]],
-    html_children: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Fill missing switch ids from topnav; keep HTML-only siblings."""
-    used: set[str] = set()
-    merged: list[dict[str, Any]] = []
-    for child in json_children:
-        updated = dict(child)
-        if not updated.get("account_id"):
-            first = (
-                (updated.get("first_name") or updated.get("name") or "").strip().lower()
-            )
-            for html_child in html_children:
-                html_id = html_child.get("account_id")
-                html_name = (html_child.get("first_name") or "").strip().lower()
-                if html_id and html_id not in used and first and first == html_name:
-                    updated["account_id"] = html_id
-                    used.add(html_id)
-                    break
-        account_id = updated.get("account_id")
-        if isinstance(account_id, str) and account_id:
-            used.add(account_id)
-        merged.append(updated)
-    for html_child in html_children:
-        html_id = html_child.get("account_id")
-        if isinstance(html_id, str) and html_id and html_id not in used:
-            merged.append(html_child)
-            used.add(html_id)
-    return merged
-
-
-def _current_user_dict(session: Smartschool) -> dict[str, Any] | None:
-    try:
-        user = session.authenticated_user
-    except Exception:
-        return None
-    if not isinstance(user, dict):
-        return None
-    return _person_dict(user)
-
-
-def _mark_current_child(
-    child: dict[str, Any], current: dict[str, Any] | None
-) -> dict[str, Any]:
-    if child.get("is_current") in (True, False):
-        return child
-    if current is None:
-        return child
-    for key in ("account_id", "user_id", "username"):
-        left = child.get(key)
-        right = current.get(key)
-        if left is not None and right is not None and str(left) == str(right):
-            child["is_current"] = True
-            return child
-    child["is_current"] = False
-    return child
-
-
-def _authenticated_user_from_response(
-    session: Smartschool, response: Any
-) -> dict | None:
-    html = _parse_html(response)
-    try:
-        from smartschool._common import parse_smsc_vars
-    except ImportError:
-        return None
-    for script in html.select("script"):
-        if script.get("src"):
-            continue
-        text = script.string or script.get_text() or ""
-        if "authenticatedUser" not in text:
-            continue
-        user = parse_smsc_vars(text).get("authenticatedUser")
-        if isinstance(user, dict):
-            session.authenticated_user = user
-            return user
-    return None
-
-
-_AUTH_PATH_SEGMENTS = {"login", "account-verification", "2fa"}
-_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
-
-
-def _url_is_auth(url: str) -> bool:
-    return bool(_AUTH_PATH_SEGMENTS & set(urlparse(url).path.split("/")))
-
-
-def _url_is_login(url: str) -> bool:
-    return "login" in set(urlparse(url).path.split("/"))
-
-
-def _is_foreign_host(url: str, origin_host: str) -> bool:
-    host = urlparse(url).netloc
-    return bool(host and origin_host and host != origin_host)
-
-
-def _is_foreign_login(url: str, origin_host: str) -> bool:
-    """True when ``url`` is a login page on a host other than the origin session."""
-    return _url_is_login(url) and _is_foreign_host(url, origin_host)
-
-
-_BROWSER_NAV_HEADERS = {
-    "Accept": (
-        "text/html,application/xhtml+xml,application/xml;q=0.9,"
-        "image/avif,image/webp,*/*;q=0.8"
-    ),
-    "Upgrade-Insecure-Requests": "1",
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/128.0.0.0 Safari/537.36"
-    ),
-}
-
-
-def _requests_parent_request(session: Smartschool) -> Any | None:
-    """Return ``requests.Session.request`` if ``session`` is a real Session."""
-    for cls in type(session).__mro__:
-        if cls.__name__ == "Session" and getattr(cls, "__module__", "").startswith(
-            "requests"
-        ):
-            request = getattr(cls, "request", None)
-            if callable(request):
-                return request
-    return None
-
-
-def _raw_session_request(
-    session: Smartschool, method: str, url: str, **kwargs: Any
-) -> Any | None:
-    """HTTP without Smartschool's login-form POST interceptor."""
-    parent_request = _requests_parent_request(session)
-    if parent_request is None:
-        return None
-    response = parent_request(session, method, url, **kwargs)
-    cookies = getattr(session, "cookies", None)
-    save = getattr(cookies, "save", None)
-    if callable(save):
-        try:
-            save(ignore_discard=True)
-        except Exception:
-            pass
-    return response
-
-
-def _foreign_hop_get(session: Smartschool, url: str, origin_host: str) -> Any:
-    """GET another school's hop the way the browser does, without posting login."""
-    headers = dict(_BROWSER_NAV_HEADERS)
-    if origin_host:
-        headers["Referer"] = f"https://{origin_host}/"
-    raw = _raw_session_request(
-        session, "GET", url, allow_redirects=False, headers=headers
-    )
-    if raw is not None:
-        return raw
-    return session.get(url, allow_redirects=False)
-
-
-def _path_is(url: str, segment: str) -> bool:
-    return segment in set(urlparse(url).path.split("/"))
-
-
-def _post_child_verification(
-    session: Smartschool, url: str, origin_host: str, birth_date: str
-) -> Any:
-    """Answer another school's "birth date of the child" question, once.
-
-    The other school asks for the birth date of the child being switched to.
-    The answer is posted with a raw request: no password, no TOTP, and no
-    ``GuardedSession`` bookkeeping, so a wrong date can neither re-post the
-    login nor write an ``auth_failed`` lock for a password that was never sent.
-    """
-    page = _foreign_hop_get(session, url, origin_host)
-    data = fill_form(
-        page,
-        'form[name="account_verification_form"]',
-        {"security_question_answer": birth_date},
-    )
-    headers = dict(_BROWSER_NAV_HEADERS)
-    headers["Referer"] = url
-    response = _raw_session_request(
-        session, "POST", url, data=data, allow_redirects=True, headers=headers
-    )
-    if response is None:
-        raise RuntimeError("no raw HTTP session available for account verification")
-    return response
-
-
-def _clear_stale_lock(session: Smartschool) -> None:
-    """Drop an ``auth_failed`` lock the current host got from a failed switch.
-
-    Older versions posted the wrong child's birth date to the other school and
-    locked that school's profile for it. No password was ever sent there, and
-    the verification just succeeded, so the lock is stale and would otherwise
-    refuse every call on this host.
-    """
-    creds = getattr(session, "creds", None)
-    username = getattr(creds, "username", None)
-    main_url = getattr(creds, "main_url", None)
-    if not username or not main_url:
-        return
-    try:
-        auth_failed_path(username, main_url).unlink(missing_ok=True)
-    except OSError:
-        pass
-
-
-def _child_name_for(account_id: str) -> str | None:
-    """Name of a linked child, as ``get_children`` lists it."""
-    try:
-        for child in get_children().get("children") or []:
-            if child.get("account_id") == account_id:
-                return child.get("first_name") or child.get("name")
-    except Exception:
-        return None
-    return None
-
-
-def _stored_child_birth_date(session: Smartschool, account_id: str) -> str | None:
-    """Birth date kept for this child in ``credentials.json`` (``children[]``)."""
-    username = getattr(getattr(session, "creds", None), "username", None)
-    if not isinstance(username, str) or not username:
-        return None
-    try:
-        for profile in load_profiles():
-            if profile.get("username") != username:
-                continue
-            for child in profile.get("children") or []:
-                if child.get("account_id") == account_id and child.get("birth_date"):
-                    return str(child["birth_date"])
-    except Exception:
-        return None
-    return None
-
-
-def _retarget_session_host(session: Smartschool, url: str) -> str | None:
-    """Point the session at another Smartschool host after a child-chain hop."""
-    new_host = urlparse(url).netloc
-    if not new_host:
-        return None
-    try:
-        current_host = urlparse(session.create_url("/")).netloc
-    except Exception:
-        current_host = ""
-    if not current_host or new_host == current_host:
-        return None
-    creds = getattr(session, "creds", None)
-    if creds is None or not hasattr(creds, "main_url"):
-        return new_host
-    session.__dict__.setdefault("_home_host", current_host)
-    object.__setattr__(creds, "main_url", new_host)
-    session.__dict__.pop("_url", None)
-    session.__dict__.pop("platform_id", None)
-    return new_host
-
-
-def _follow_switched_host(session: Smartschool, response: Any) -> str | None:
-    """If Mijn kinderen jumped to another school host, retarget the session."""
-    return _retarget_session_host(session, getattr(response, "url", "") or "")
-
-
-def _redirect_location(response: Any) -> str | None:
-    status = getattr(response, "status_code", None)
-    if status not in _REDIRECT_STATUSES:
-        return None
-    headers = getattr(response, "headers", None) or {}
-    location = headers.get("Location") or headers.get("location")
-    if not isinstance(location, str) or not location.strip():
-        return None
-    current = str(getattr(response, "url", "") or "")
-    return urljoin(current, location.strip())
-
-
-def _follow_child_switch_redirects(
-    session: Smartschool, start_path: str, birth_date: str | None = None
-) -> tuple[Any, str | None, str | None]:
-    """Follow gotourl hops without replaying the original host after OTP/auth.
-
-    Cross-school children 302 to ``https://other.smartschool.be/otp/...``. The
-    smartschool session would then finish De Ring login and replay the original
-    De Pass gotourl, dropping the new cookies. Hop-by-hop avoids that replay.
-
-    Never GET another school's ``/login`` through ``session.get``:
-    ``Smartschool.request`` POSTs this session's username/password on any
-    login form. Foreign hops (``/otp/...``, then relative ``/Studentcard``)
-    use a raw GET with browser navigation headers. A foreign
-    ``account-verification`` asks for the birth date of the child being
-    switched to: it is answered once with ``birth_date`` through a raw POST,
-    never with this login's password or TOTP. Without a ``birth_date`` nothing
-    is posted. Any other foreign auth page stops the switch.
-    """
-    origin_host = urlparse(session.create_url("/")).netloc
-    url: str = start_path
-    switched_host: str | None = None
-    response: Any = None
-    for _ in range(12):
-        if _is_foreign_login(url, origin_host):
-            return response, switched_host, url
-        if _is_foreign_host(url, origin_host) and _url_is_auth(url):
-            switched_host = _retarget_session_host(session, url) or switched_host
-            answer = birth_date
-            if not answer and urlparse(url).netloc == session.__dict__.get(
-                "_home_host"
-            ):
-                # Back on the school this login belongs to: its own ``mfa``.
-                answer = getattr(getattr(session, "creds", None), "mfa", None)
-            if not _path_is(url, "account-verification") or not answer:
-                return response, switched_host, url
-            try:
-                response = _post_child_verification(session, url, origin_host, answer)
-            except Exception:
-                return response, switched_host, url
-            landing = str(getattr(response, "url", "") or url)
-            if _url_is_auth(landing):
-                return response, switched_host, landing
-            _clear_stale_lock(session)
-            session.__dict__["_verified_birth"] = answer
-            return response, switched_host, None
-        if _is_foreign_host(url, origin_host):
-            response = _foreign_hop_get(session, url, origin_host)
-        else:
-            response = session.get(url, allow_redirects=False)
-        switched_host = (
-            _retarget_session_host(session, getattr(response, "url", "") or "")
-            or switched_host
-        )
-        location = _redirect_location(response)
-        if location:
-            if _is_foreign_login(location, origin_host):
-                switched_host = (
-                    _retarget_session_host(session, location) or switched_host
-                )
-                return response, switched_host, location
-            switched_host = _retarget_session_host(session, location) or switched_host
-            url = location
-            continue
-        current_url = str(getattr(response, "url", "") or url)
-        if _url_is_login(current_url):
-            blocked = (
-                current_url if _is_foreign_login(current_url, origin_host) else None
-            )
-            return response, switched_host, blocked
-        if _url_is_auth(current_url) and not _is_foreign_host(current_url, origin_host):
-            switched_host = (
-                _retarget_session_host(session, current_url) or switched_host
-            )
-            response = session.get(current_url, allow_redirects=True)
-            switched_host = (
-                _retarget_session_host(
-                    session, getattr(response, "url", "") or current_url
-                )
-                or switched_host
-            )
-        break
-    return response, switched_host, None
-
-
-@_tool
+@mcp.tool()
 def get_courses() -> list[dict[str, Any]]:
     """
     Retrieve all available courses with their teachers.
@@ -947,358 +271,33 @@ def get_courses() -> list[dict[str, Any]]:
         return courses_list
 
     except Exception as e:
-        return [{"error": _tool_error(e, "Failed to retrieve courses")}]
-
-
-_DOCUMENTS_BROWSE_RE = re.compile(
-    r"^/Documents/Index/Index/courseID/(\d+)(?:/parentID/\d+)?/ssID/(\d+)$"
-)
-_DOCUMENTS_DOWNLOAD_RE = re.compile(
-    r"^/Documents/Download/Index/htm/\d/courseID/(\d+)/docID/(\d+)/ssID/(\d+)$"
-)
-
-
-def _course_document_item(item: object) -> dict[str, Any]:
-    name = str(getattr(item, "name", "") or "")
-    link = getattr(item, "link", None)
-    if isinstance(link, str) and link.strip():
-        return {"kind": "link", "name": name, "link": link.strip()}
-    browse = getattr(item, "browse_url", None)
-    download = getattr(item, "download_url", None)
-    if (
-        isinstance(browse, str)
-        and browse.startswith("/Documents/")
-        and not isinstance(download, str)
-    ):
-        return {"kind": "folder", "name": name, "browse_url": browse}
-    modified = _safe_format_date(getattr(item, "last_modified", None))
-    if modified is None:
-        raw_modified = getattr(item, "last_modified", None)
-        modified = raw_modified if isinstance(raw_modified, str) else None
-    size_kb = getattr(item, "size_kb", None)
-    if not isinstance(size_kb, (int, float)) or isinstance(size_kb, bool):
-        size_kb = None
-    view_url = getattr(item, "view_url", None)
-    doc_id = getattr(item, "id", None)
-    return {
-        "kind": "file",
-        "id": doc_id if isinstance(doc_id, int) else None,
-        "name": name,
-        "mime_type": str(getattr(item, "mime_type", "") or ""),
-        "size_kb": size_kb,
-        "last_modified": modified,
-        "view_url": view_url if isinstance(view_url, str) else None,
-    }
-
-
-def _checked_browse_url(
-    browse_url: str | None, course_id: int, platform_id: int
-) -> str | None:
-    if browse_url is None:
-        return None
-    match = _DOCUMENTS_BROWSE_RE.fullmatch(browse_url.strip())
-    if match is None:
-        raise ValueError("browse_url is not a course Documents folder path")
-    if int(match.group(1)) != course_id or int(match.group(2)) != platform_id:
-        raise ValueError("browse_url does not match course_id and platform_id")
-    return browse_url.strip()
-
-
-@_tool
-def get_course_documents(
-    course_id: int | None = None,
-    platform_id: int | None = None,
-    browse_url: str | None = None,
-) -> dict[str, Any]:
-    """
-    List Documenten for one course in the lesson module (Vakken).
-
-    Without course_id, returns TopNav courses (integer id + platform_id).
-    Those ids are not the ids from get_courses (results API).
-
-    With course_id, lists one folder via FolderItem:
-    ``GET /Documents/Index/Index/courseID/{courseId}/ssID/{platformId}``.
-    That HTML listing and its parentID subfolders are in the library fixtures
-    and were seen live on De Ring. Pass browse_url from a folder row to open
-    a subfolder. Uploadzone (indienzone) is a different module and is not listed.
-
-    Args:
-        course_id: TopNav course id. Omit to list courses.
-        platform_id: School platform id. Looked up from TopNav when omitted.
-        browse_url: Optional Documents folder path returned by an earlier call.
-    """
-    try:
-        session = _session()
-        if course_id is None:
-            courses = []
-            for course in TopNavCourses(session):
-                courses.append(
-                    {
-                        "id": getattr(course, "id", None),
-                        "platform_id": getattr(course, "platform_id", None),
-                        "name": getattr(course, "name", "") or "",
-                        "teacher": getattr(course, "teacher", "") or "",
-                    }
-                )
-            return {
-                "courses": courses,
-                "total": len(courses),
-                "note": (
-                    "course_id is the TopNav Documents id, not the id from get_courses"
-                ),
-            }
-        if (
-            isinstance(course_id, bool)
-            or not isinstance(course_id, int)
-            or course_id <= 0
-        ):
-            return {"error": "Invalid course_id"}
-
-        resolved_platform = platform_id
-        course_name = ""
-        teacher = ""
-        if resolved_platform is None:
-            for course in TopNavCourses(session):
-                if getattr(course, "id", None) == course_id:
-                    resolved_platform = getattr(course, "platform_id", None)
-                    course_name = getattr(course, "name", "") or ""
-                    teacher = getattr(course, "teacher", "") or ""
-                    break
-        if (
-            isinstance(resolved_platform, bool)
-            or not isinstance(resolved_platform, int)
-            or resolved_platform <= 0
-        ):
-            return {"error": "platform_id is required and was not found on TopNav"}
-
-        safe_browse = _checked_browse_url(browse_url, course_id, resolved_platform)
-        course = CourseCondensed(
-            session=session,
-            name=course_name or str(course_id),
-            teacher=teacher,
-            url="",
-            id=course_id,
-            platform_id=resolved_platform,
-        )
-        folder = FolderItem(
-            session=session,
-            parent=None,
-            course=course,
-            name="(Root)",
-            browse_url=safe_browse,
-        )
-        items = [_course_document_item(item) for item in folder.items]
-        return {
-            "course_id": course_id,
-            "platform_id": resolved_platform,
-            "browse_url": folder.browse_url,
-            "items": items,
-            "total": len(items),
-        }
-    except Exception as e:
-        return {"error": _tool_error(e, "Failed to retrieve course documents")}
-
-
-@_tool
-def download_course_document(
-    course_id: int,
-    document_id: int,
-    platform_id: int | None = None,
-    browse_url: str | None = None,
-    save_path: str | None = None,
-) -> dict[str, Any]:
-    """
-    Download one file from a course Documenten folder.
-
-    The file is looked up in that folder (not in subfolders) and saved from
-    the download path FolderItem parsed out of the HTML, which in the library
-    fixtures is ``/Documents/Download/Index/htm/{0|1}/courseID/.../docID/...``.
-
-    Args:
-        course_id: TopNav course id from get_course_documents.
-        document_id: File id from a ``kind=file`` row.
-        platform_id: School platform id. Looked up when omitted.
-        browse_url: Subfolder path when the file is not in the course root.
-        save_path: Optional subfolder of the download folder
-            (~/Downloads/smartschool/, or SMARTSCHOOL_DOWNLOAD_DIR).
-            Paths outside that folder are refused.
-    """
-    try:
-        download_dir = _download_dir(save_path)
-        if (
-            isinstance(course_id, bool)
-            or not isinstance(course_id, int)
-            or course_id <= 0
-        ):
-            return {"error": "Invalid course_id"}
-        if (
-            isinstance(document_id, bool)
-            or not isinstance(document_id, int)
-            or document_id <= 0
-        ):
-            return {"error": "Invalid document_id"}
-        listing = get_course_documents(
-            course_id=course_id, platform_id=platform_id, browse_url=browse_url
-        )
-        if "error" in listing:
-            return {"error": str(listing["error"])}
-        match = next(
-            (
-                item
-                for item in listing.get("items") or []
-                if item.get("kind") == "file" and item.get("id") == document_id
-            ),
-            None,
-        )
-        if match is None:
-            link = next(
-                (
-                    item
-                    for item in listing.get("items") or []
-                    if item.get("kind") == "link" and item.get("id") == document_id
-                ),
-                None,
-            )
-            if link:
-                return {
-                    "error": "That row is a link, not a file",
-                    "link": link.get("link"),
-                }
-            return {
-                "error": (
-                    f"Document {document_id} not found in this folder. "
-                    "Pass browse_url to look inside a subfolder."
-                )
-            }
-
-        session = _session()
-        resolved_platform = listing["platform_id"]
-        safe_browse = _checked_browse_url(browse_url, course_id, resolved_platform)
-        course = CourseCondensed(
-            session=session,
-            name=str(course_id),
-            teacher="",
-            url="",
-            id=course_id,
-            platform_id=resolved_platform,
-        )
-        folder = FolderItem(
-            session=session,
-            parent=None,
-            course=course,
-            name="(Root)",
-            browse_url=safe_browse,
-        )
-        download_url = None
-        filename = match.get("name") or f"document_{document_id}"
-        for item in folder.items:
-            if getattr(item, "id", None) != document_id:
-                continue
-            link = getattr(item, "link", None)
-            if isinstance(link, str):
-                return {
-                    "error": "That row is a link, not a file",
-                    "link": link,
-                }
-            download_url = getattr(item, "download_url", None)
-            filename = getattr(item, "name", None) or filename
-            break
-        if (
-            not isinstance(download_url, str)
-            or _DOCUMENTS_DOWNLOAD_RE.fullmatch(download_url) is None
-        ):
-            return {"error": "Document has no Documents download path"}
-        parsed = _DOCUMENTS_DOWNLOAD_RE.fullmatch(download_url)
-        assert parsed is not None
-        if (
-            int(parsed.group(1)) != course_id
-            or int(parsed.group(3)) != resolved_platform
-        ):
-            return {"error": "Refusing a download path for a different course"}
-        if int(parsed.group(2)) != document_id:
-            return {"error": "Refusing a download path for a different document"}
-        resp = session.get(download_url)
-        if not getattr(resp, "ok", False):
-            status = getattr(resp, "status_code", "?")
-            return {"error": f"Download failed: HTTP {status}"}
-        if _portal_page_instead_of_file(resp, str(match.get("mime_type") or "")):
-            return {"error": _PORTAL_PAGE_ERROR}
-        saved_name = filename_from_response(
-            str(filename),
-            str(match.get("mime_type") or ""),
-            resp,
-        )
-        saved = _write_download(resp.content, saved_name, download_dir)
-        saved.update(
-            {
-                "course_id": course_id,
-                "document_id": document_id,
-                "mime_type": match.get("mime_type") or "",
-            }
-        )
-        return saved
-    except Exception as e:
-        return {"error": _tool_error(e, "Failed to download course document")}
-
-
-_EVALUATION_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,160}$")
-
-
-def _fetch_evaluation(result: object) -> dict[str, Any] | None:
-    """Raw evaluation JSON, not the library model (tendencies are typed as strings)."""
-    identifier = getattr(result, "identifier", None)
-    if (
-        not isinstance(identifier, str)
-        or _EVALUATION_ID_RE.fullmatch(identifier) is None
-    ):
-        return None
-    session = getattr(result, "session", None)
-    json_call = getattr(session, "json", None)
-    if not callable(json_call):
-        return None
-    try:
-        payload = json_call(f"/results/api/v1/evaluations/{identifier}")
-    except Exception:
-        return None
-    if isinstance(payload, dict):
-        return payload
-    return None
+        return [{"error": f"Failed to retrieve courses: {e!s}"}]
 
 
 def _feedback_attachment_ids(result: Any) -> list[str]:
+    """Ids of the files teachers attached to a result's feedback."""
     ids: list[str] = []
     for feedback in getattr(result, "feedbacks", None) or []:
         ids.extend(str(i) for i in getattr(feedback, "attachments", None) or [])
     return ids
 
 
-@_tool
+@mcp.tool()
 def get_results(
     limit: int = 15,
     offset: int = 0,
     course_filter: str | None = None,
     include_details: bool = True,
-    include_raw: bool = False,
 ) -> dict[str, Any]:
     """
     Retrieve student results/grades with detailed information.
-
-    Class average and median come from the evaluation detail payload
-    (``centralTendencies``, or a field such as ``classAverage`` /
-    ``gemiddelde`` / ``mediaan`` when that is what the school sends).
-    A school or teacher can hide those numbers. They stay null when the
-    payload does not include them.
 
     Args:
         limit: Maximum number of results to return (default: 15)
         offset: Number of results to skip from the beginning (default: 0)
         course_filter: Filter results by course name (partial match, case-insensitive)
-        include_details: Whether to fetch class average and median.
-            Saves API calls if False. The teacher on each row comes from
-            the list payload either way.
-        include_raw: On the first result only, add a secret-free summary of
-            the detail JSON: key names and whether score-like average/median
-            values were present. No names and no cookies.
+        include_details: Whether to fetch detailed info (teacher, average, median)
+            - saves API calls if False
 
     Returns:
         Dictionary with results list and pagination info.
@@ -1307,11 +306,7 @@ def get_results(
         - get_results() -> First 15 results with details
         - get_results(course_filter="Math") -> Results from courses containing "Math"
         - get_results(include_details=False) -> Basic info only, faster response
-        - get_results(include_raw=True) -> First row also has a ``raw`` diagnostic
     """
-    page_error = _page_error(limit, offset)
-    if page_error:
-        return {"error": page_error}
     try:
         results = Results(_session())
         all_results = list(results)
@@ -1329,7 +324,7 @@ def get_results(
         end_index = offset + limit
         paginated = all_results[offset:end_index]
 
-        results_list: list[dict[str, Any]] = []
+        results_list = []
 
         for result in paginated:
             # Basic result information (teacher comes from gradebook_owner,
@@ -1338,7 +333,7 @@ def get_results(
             result_data = {
                 "course": result.courses[0].name if result.courses else "Unknown",
                 "assignment": result.name or "Unknown Assignment",
-                "teacher": _gradebook_owner_name(result),
+                "teacher": result.gradebook_owner.name.starting_with_first_name,
                 "period": result.period.name if result.period else None,
                 "score_description": getattr(graphic, "description", "N/A"),
                 "score_value": getattr(graphic, "value", None),
@@ -1352,29 +347,35 @@ def get_results(
                 "feedback_attachment_ids": _feedback_attachment_ids(result),
             }
 
-            # Class average/median only when requested. The list payload has
-            # the teacher already; these numbers live on the detail call.
-            first_row = not results_list
-            raw_payload = None
-            if include_details or (include_raw and first_row):
-                raw_payload = _fetch_evaluation(result)
+            # Fetch central tendencies (average/median) only when requested
             if include_details:
                 result_data.update({"average": None, "median": None})
-                if raw_payload is not None:
-                    average, median = statistics_from_payload(raw_payload)
-                    result_data["average"] = average
-                    result_data["median"] = median
-                else:
-                    try:
-                        detail = result.details
-                    except Exception:
-                        detail = None
-                    if detail is not None:
-                        average, median = statistics_from_detail(detail)
-                        result_data["average"] = average
-                        result_data["median"] = median
-            if include_raw and first_row:
-                result_data["raw"] = detail_diagnostic(raw_payload)
+
+                try:
+                    # details is a lazy-loaded property — fetches on first access
+                    detail = result.details
+
+                    # Extract statistical information (central tendencies)
+                    if detail and detail.central_tendencies:
+                        tendencies = detail.central_tendencies
+
+                        if len(tendencies) > 0 and hasattr(tendencies[0], "graphic"):
+                            g = tendencies[0].graphic
+                            result_data["average"] = {
+                                "description": getattr(g, "description", "N/A"),
+                                "value": getattr(g, "value", None),
+                            }
+
+                        if len(tendencies) > 1 and hasattr(tendencies[1], "graphic"):
+                            g = tendencies[1].graphic
+                            result_data["median"] = {
+                                "description": getattr(g, "description", "N/A"),
+                                "value": getattr(g, "value", None),
+                            }
+
+                except Exception:
+                    # central_tendencies unavailable — keep default None values
+                    pass
 
             results_list.append(result_data)
 
@@ -1395,29 +396,7 @@ def get_results(
         }
 
     except Exception as e:
-        return {"error": _tool_error(e, "Failed to retrieve results")}
-
-
-def _gradebook_owner_name(result: object) -> str | None:
-    """Teacher of a result row, or None when the payload has no owner."""
-    owner = getattr(result, "gradebook_owner", None)
-    name = getattr(owner, "name", None)
-    value = getattr(name, "starting_with_first_name", None)
-    return value if isinstance(value, str) else None
-
-
-def _page_error(limit: int, offset: int) -> str | None:
-    if limit < 1 or limit > _MAX_PAGE_SIZE:
-        return f"limit must be between 1 and {_MAX_PAGE_SIZE}"
-    if offset < 0:
-        return "offset must be 0 or more"
-    return None
-
-
-_MAX_PAGE_SIZE = 200
-_MAX_BODY_SEARCH = 50
-# The longest Planner window a tool asks for: one school year and a bit.
-_MAX_PLANNER_DAYS = 400
+        return {"error": f"Failed to retrieve results: {e!s}"}
 
 
 class _TaskDict(TypedDict):
@@ -1436,178 +415,173 @@ class _DayDict(TypedDict):
     courses: list[_CourseDict]
 
 
-# Legacy Agenda future-tasks returns every upcoming row. Planner needs a window;
-# a year covers the rest of the school year without an open-ended query.
-_FUTURE_TASKS_HORIZON_DAYS = 366
-_FUTURE_TASK_PLANNER_TYPES = "planned-assignments"
+# Planner element types that make up a day's timetable: lessons with content,
+# empty timetable slots, and moments of a lesson cluster.
+_PLANNER_LESSON_TYPES = (
+    "planned-lessons",
+    "planned-placeholders",
+    "planned-lesson-cluster-moments",
+)
+_PLANNER_TASK_TYPES = ("planned-assignments", "planned-to-dos")
 
 
-def _agenda_task_days(future_tasks: Any) -> list[_DayDict]:
-    """Map ``FutureTasks`` (old Schoolagenda) into the tool's day/course shape."""
-    tasks_data: list[_DayDict] = []
-    for day in future_tasks:
-        day_data: _DayDict = {
-            "date": _safe_format_date(day.date),
-            "courses": [],
-        }
-
-        for course in day.courses:
-            course_data: _CourseDict = {
-                "name": course.course_title,
-                "tasks": [],
-            }
-
-            if hasattr(course, "items") and hasattr(course.items, "tasks"):
-                for task in course.items.tasks:
-                    task_data: _TaskDict = {
-                        "label": getattr(task, "label", "N/A"),
-                        "description": getattr(task, "description", "N/A"),
-                        "warning": getattr(task, "warning", False),
-                    }
-                    course_data["tasks"].append(task_data)
-
-            if course_data["tasks"]:
-                day_data["courses"].append(course_data)
-
-        if day_data["courses"]:
-            tasks_data.append(day_data)
-    return tasks_data
+def _planner_location(element: Any) -> str | None:
+    names = [
+        getattr(loc, "title", None)
+        or getattr(loc, "text", None)
+        or getattr(loc, "number", None)
+        for loc in getattr(element, "locations", None) or []
+    ]
+    return ", ".join(n for n in names if n) or None
 
 
-def _planned_course_names(element: object) -> str:
-    courses = getattr(element, "courses", None) or []
-    names: list[str] = []
-    for course in courses:
-        name = getattr(course, "name", None)
-        if isinstance(name, str) and name.strip():
-            names.append(name.strip())
-    return ", ".join(names) if names else "Unknown"
+def _planner_organisers(element: Any) -> str | None:
+    users = getattr(getattr(element, "organisers", None), "users", None) or []
+    names = []
+    for user in users:
+        with contextlib.suppress(AttributeError):
+            names.append(user.name.starting_with_last_name)
+    return ", ".join(names) or None
 
 
-def _planned_element_day(element: object) -> date | None:
-    period = getattr(element, "period", None)
-    start = getattr(period, "date_time_from", None) if period is not None else None
-    if isinstance(start, datetime):
-        return start.date()
-    if isinstance(start, date):
-        return start
-    return None
-
-
-def _planner_assignment_days(session: Smartschool) -> list[_DayDict]:
-    """Map Planner ``planned-assignments`` onto the future-tasks shape.
-
-    Used when the legacy Agenda list is empty. De Pass stores Toets and
-    Huistaak items on the calendar, not in ``/Agenda/Futuretasks``.
-    """
-    start = date.today()
-    end = start + timedelta(days=_FUTURE_TASKS_HORIZON_DAYS)
-    by_day: dict[str, dict[str, _CourseDict]] = {}
-
-    for element in PlannedElements(
+def _planner_future_tasks(session: Smartschool, days_ahead: int = 34) -> list[_DayDict]:
+    """Planner assignments and to-dos, shaped like the agenda's future tasks."""
+    days: dict[str, dict[str, list[_TaskDict]]] = {}
+    elements = PlannedElements(
         session,
-        from_date=start,
-        till_date=end,
-        element_types=_FUTURE_TASK_PLANNER_TYPES,
-    ):
-        element_type = getattr(element, "planned_element_type", None)
-        if element_type not in (None, _FUTURE_TASK_PLANNER_TYPES):
-            continue
-        day = _planned_element_day(element)
-        if day is None or day < start:
-            continue
-
-        course_name = _planned_course_names(element)
-
-        assignment_type = getattr(element, "assignment_type", None)
-        raw_label = (
-            getattr(assignment_type, "name", None)
-            if assignment_type is not None
-            else None
-        )
+        till_date=date.today() + timedelta(days=days_ahead),
+        element_types=_PLANNER_TASK_TYPES,
+    )
+    for element in sorted(elements, key=lambda e: e.period.date_time_from):
+        day = element.period.date_time_from.strftime("%Y-%m-%d")
+        course = ", ".join(c.name for c in element.courses) or "-"
         label = (
-            raw_label.strip()
-            if isinstance(raw_label, str) and raw_label.strip()
-            else "Assignment"
+            element.assignment_type.name
+            if element.assignment_type
+            else (
+                "To-do" if element.planned_element_type == "planned-to-dos" else "N/A"
+            )
         )
-        raw_description = getattr(element, "name", None)
-        description = (
-            raw_description.strip()
-            if isinstance(raw_description, str) and raw_description.strip()
-            else "N/A"
+        days.setdefault(day, {}).setdefault(course, []).append(
+            {"label": label, "description": element.name, "warning": False}
         )
-        warning = getattr(element, "warning", False)
-        task: _TaskDict = {
-            "label": label,
-            "description": description,
-            "warning": warning if isinstance(warning, bool) else False,
-        }
-
-        day_key = day.strftime("%Y-%m-%d")
-        courses_for_day = by_day.setdefault(day_key, {})
-        course_data = courses_for_day.get(course_name)
-        if course_data is None:
-            course_data = {"name": course_name, "tasks": []}
-            courses_for_day[course_name] = course_data
-        course_data["tasks"].append(task)
-
     return [
-        {"date": day_key, "courses": list(courses_for_day.values())}
-        for day_key, courses_for_day in by_day.items()
+        {
+            "date": day,
+            "courses": [
+                {"name": name, "tasks": tasks} for name, tasks in courses.items()
+            ],
+        }
+        for day, courses in days.items()
     ]
 
 
-def _future_tasks_payload(tasks_data: list[_DayDict]) -> dict[str, Any]:
-    total_tasks = sum(
-        len(course["tasks"]) for day in tasks_data for course in day["courses"]
+def _planner_lessons(session: Smartschool, target_date: date) -> list[dict[str, Any]]:
+    """A day's timetable from the planner, in the shape of the agenda lessons."""
+    elements = PlannedElements(
+        session,
+        from_date=target_date,
+        till_date=target_date + timedelta(days=1),
+        element_types=_PLANNER_LESSON_TYPES,
     )
-    return {
-        "future_tasks": tasks_data,
-        "total_days": len(tasks_data),
-        "total_tasks": total_tasks,
-    }
+    lessons = []
+    for element in elements:
+        period = element.period
+        if period.date_time_from.date() != target_date:
+            continue
+        lessons.append(
+            {
+                "moment_id": str(element.id),
+                "date": target_date.strftime("%Y-%m-%d"),
+                "hour": f"{period.date_time_from:%H:%M}-{period.date_time_to:%H:%M}",
+                "course": ", ".join(c.name for c in element.courses) or None,
+                "classroom": _planner_location(element),
+                "teacher": _planner_organisers(element),
+                "subject": element.name or None,
+                "note": None,
+                "color": element.color,
+                "assignment_end_status": None,
+                "test_deadline_status": None,
+                "type": element.planned_element_type,
+            }
+        )
+    return sorted(lessons, key=lambda lesson: lesson["hour"])
 
 
-@_tool
+@mcp.tool()
 def get_future_tasks() -> dict[str, Any]:
     """
     Retrieve upcoming assignments and tasks.
 
-    The legacy Schoolagenda call (POST /Agenda/Futuretasks/getFuturetasks)
-    is tried first. On Planner schools such as De Pass that list is empty
-    while tests and homework are calendar rows of type planned-assignments.
-    An empty or failing legacy list falls back to those Planner rows from
-    today through the next 366 days, in the same date/course/task shape.
-
-    For the full calendar (lessons, activities, other types) use
-    get_planned_elements.
+    Reads the agenda's future tasks; when the agenda is empty, as at schools
+    that use the planner, reads the planner's assignments and to-dos for the
+    next 34 days instead.
 
     Returns:
-        Dictionary with future tasks organized by date and course.
+        Dictionary with future tasks organized by date and course, and
+        ``source`` ("agenda" or "planner").
     """
-    agenda_error: Exception | None = None
     try:
-        tasks_data = _agenda_task_days(FutureTasks(_session()))
-    except Exception as exc:
-        agenda_error = exc
-        tasks_data = []
+        future_tasks = FutureTasks(_session())
+        tasks_data: list[_DayDict] = []
 
-    if tasks_data:
-        return _future_tasks_payload(tasks_data)
+        for day in future_tasks:
+            day_data: _DayDict = {
+                "date": _safe_format_date(day.date),
+                "courses": [],
+            }
 
-    try:
-        planner_days = _planner_assignment_days(_session())
-    except Exception:
-        # A successful empty Agenda list stays empty when Planner is unavailable.
-        # An Agenda failure is reported only when Planner fails too.
-        if agenda_error is None:
-            return _future_tasks_payload([])
-        return {"error": _tool_error(agenda_error, "Failed to retrieve future tasks")}
+            for course in day.courses:
+                course_data: _CourseDict = {
+                    "name": course.course_title,
+                    "tasks": [],
+                }
 
-    return _future_tasks_payload(planner_days)
+                # Extract tasks from the course
+                if hasattr(course, "items") and hasattr(course.items, "tasks"):
+                    for task in course.items.tasks:
+                        task_data: _TaskDict = {
+                            "label": getattr(task, "label", "N/A"),
+                            "description": getattr(task, "description", "N/A"),
+                            "warning": getattr(task, "warning", False),
+                        }
+                        course_data["tasks"].append(task_data)
+
+                # Only add course if it has tasks
+                if course_data["tasks"]:
+                    day_data["courses"].append(course_data)
+
+            # Only add day if it has courses with tasks
+            if day_data["courses"]:
+                tasks_data.append(day_data)
+
+        source = "agenda"
+        planner_error = None
+        if not tasks_data:
+            # Schools that moved to the planner leave the old agenda empty.
+            try:
+                tasks_data = _planner_future_tasks(_session())
+                source = "planner"
+            except Exception as e:
+                planner_error = f"{e!s}"
+
+        total_tasks = sum(
+            len(course["tasks"]) for day in tasks_data for course in day["courses"]
+        )
+
+        return {
+            "future_tasks": tasks_data,
+            "total_days": len(tasks_data),
+            "total_tasks": total_tasks,
+            "source": source,
+            **({"planner_error": planner_error} if planner_error else {}),
+        }
+
+    except Exception as e:
+        return {"error": f"Failed to retrieve future tasks: {e!s}"}
 
 
-@_tool
+@mcp.tool()
 def get_messages(
     limit: int = 15,
     offset: int = 0,
@@ -1624,10 +598,7 @@ def get_messages(
         offset: Number of messages to skip from the beginning (default: 0)
         box_type: Type of mailbox - "INBOX", "SENT", "DRAFT", "SCHEDULED",
             "TRASH" (default: "INBOX")
-        search_query: Search in subject and body content (case-insensitive).
-            Bodies are fetched one request each, for at most 50 messages
-            whose subject does not match; ``body_search_truncated`` is true
-            when more were skipped.
+        search_query: Search in subject and body content (case-insensitive)
         sender_filter: Filter messages by sender name (partial match,
             case-insensitive)
         include_body: Whether to include full message body
@@ -1643,17 +614,15 @@ def get_messages(
           "teacher"
         - get_messages(include_body=True) -> Full messages with body content
     """
-    page_error = _page_error(limit, offset)
-    if page_error:
-        return {"error": page_error}
-    box_type_enum = getattr(BoxType, box_type.strip().upper(), None)
-    if not isinstance(box_type_enum, BoxType):
-        allowed = ", ".join(member.name for member in BoxType)
-        return {"error": f"Unknown box_type {box_type!r}. Use one of: {allowed}"}
     try:
-        session = _session()
+        # Convert string box_type to BoxType enum
+        try:
+            box_type_enum = getattr(BoxType, box_type.upper())
+        except AttributeError:
+            box_type_enum = BoxType.INBOX  # Default fallback
+
         # Get message headers — headers already carry from_, subject, date, unread
-        all_headers = list(MessageHeaders(session, box_type=box_type_enum))  # type: ignore[abstract, var-annotated]
+        all_headers = list(MessageHeaders(_session(), box_type=box_type_enum))
 
         # Apply sender filter directly from headers (no full message fetch needed)
         if sender_filter:
@@ -1665,27 +634,19 @@ def get_messages(
 
         # Apply search query: check subject first, only fetch body when subject
         # doesn't match
-        body_search_truncated = False
-        cached_bodies: dict[Any, Any] = {}
         if search_query:
             matched = []
-            bodies_fetched = 0
             for header in all_headers:
                 subject = (getattr(header, "subject", "") or "").lower()
                 if search_query.lower() in subject:
                     matched.append(header)
                     continue
-                # Each body is one HTTP request. Cap them so a search over a
-                # full inbox stays a few seconds, not hundreds of requests.
-                if bodies_fetched >= _MAX_BODY_SEARCH:
-                    body_search_truncated = True
-                    continue
-                bodies_fetched += 1
+                # Fall back to fetching full message body
                 try:
-                    full_msg = Message(session, header.id).get()  # type: ignore[abstract, var-annotated]
+                    full_msg = Message(_session(), header.id).get()
                     body = (getattr(full_msg, "body", "") or "").lower()
                     if search_query.lower() in body:
-                        cached_bodies[header.id] = full_msg
+                        header._cached_message = full_msg  # type: ignore[attr-defined]
                         matched.append(header)
                 except Exception:
                     continue
@@ -1715,10 +676,10 @@ def get_messages(
             }
 
             # Include body if explicitly requested or already cached from search
-            cached = cached_bodies.get(header.id)
+            cached = getattr(header, "_cached_message", None)
             if include_body:
                 try:
-                    full_msg = cached or Message(session, header.id).get()  # type: ignore[abstract]
+                    full_msg = cached or Message(_session(), header.id).get()
                     message_data["body"] = getattr(full_msg, "body", "")
                 except Exception:
                     message_data["body"] = ""
@@ -1749,58 +710,73 @@ def get_messages(
                 "sender_filter": sender_filter,
                 "include_body": include_body,
             },
-            # True when the search read only the first _MAX_BODY_SEARCH bodies.
-            "body_search_truncated": body_search_truncated,
         }
 
     except Exception as e:
-        return {"error": _tool_error(e, "Failed to retrieve messages")}
+        return {"error": f"Failed to retrieve messages: {e!s}"}
 
 
-@_tool
-def get_schedule(date_offset: int = 0, includes: str | None = None) -> dict[str, Any]:
+@mcp.tool()
+def get_schedule(date_offset: int = 0) -> dict[str, Any]:
     """
-    Retrieve the Planner calendar for a given day.
-
-    Same portal call as the website timetable: GET
-    /planner/api/v1/planned-elements/user/{id} with from/to only (no types
-    filter). Schoolagenda XML is not used.
+    Retrieve the lesson schedule for a given day.
 
     Args:
         date_offset: Days from today (0=today, 1=tomorrow, -1=yesterday,
             default: 0)
-        includes: Optional comma-separated expansions the SPA uses
-            (e.g. icon,courses,locations,upload-folders,labels)
+
+    Reads the agenda; when it has no lessons that day, as at schools that use
+    the planner, reads the planner's lessons, timetable slots and cluster
+    moments for that day instead.
 
     Returns:
-        Dictionary with planned elements for the given date. Each element
-        includes ``id``, ``description`` and ``upload_folders``, but on the
-        calendar list those two are always empty (live-checked, whatever the
-        includes). Only ``courses`` and ``locations`` change the response;
-        other names can give an error. For study material and attachments call
-        ``get_planner_attachments`` with the element ``id``.
+        Dictionary with the lessons scheduled for the given date, and
+        ``source`` ("agenda" or "planner").
     """
     try:
         target_date = date.today() + timedelta(days=date_offset)
-        elements_list = fetch_calendar(
-            _session(),
-            target_date,
-            target_date,
-            None,
-            _csv_or_none(includes),
-        )
+        lessons_list = []
+
+        for lesson in SmartschoolLessons(_session(), timestamp_to_use=target_date):
+            lessons_list.append(
+                {
+                    "moment_id": lesson.moment_id,
+                    "date": _safe_format_date(lesson.date),
+                    "hour": lesson.hour,
+                    "course": lesson.course_title,
+                    "classroom": lesson.classroom_title,
+                    "teacher": lesson.teacher_title,
+                    "subject": lesson.subject,
+                    "note": lesson.note,
+                    "color": lesson.color,
+                    "assignment_end_status": lesson.assignment_end_status,
+                    "test_deadline_status": lesson.test_deadline_status,
+                }
+            )
+
+        source = "agenda"
+        planner_error = None
+        if not lessons_list:
+            # Schools that moved to the planner leave the old agenda empty.
+            try:
+                lessons_list = _planner_lessons(_session(), target_date)
+                source = "planner"
+            except Exception as e:
+                planner_error = f"{e!s}"
 
         return {
             "date": target_date.strftime("%Y-%m-%d"),
-            "elements": elements_list,
-            "total": len(elements_list),
+            "lessons": lessons_list,
+            "total": len(lessons_list),
+            "source": source,
+            **({"planner_error": planner_error} if planner_error else {}),
         }
 
     except Exception as e:
-        return {"error": _tool_error(e, "Failed to retrieve schedule")}
+        return {"error": f"Failed to retrieve schedule: {e!s}"}
 
 
-@_tool
+@mcp.tool()
 def get_periods() -> list[dict[str, Any]]:
     """
     Retrieve academic periods/terms for the current school year.
@@ -1829,18 +805,16 @@ def get_periods() -> list[dict[str, Any]]:
         return periods_list
 
     except Exception as e:
-        return [{"error": _tool_error(e, "Failed to retrieve periods")}]
+        return [{"error": f"Failed to retrieve periods: {e!s}"}]
 
 
-@_tool
+@mcp.tool()
 def get_reports() -> list[dict[str, Any]]:
     """
     Retrieve available academic report cards.
 
     Returns:
         List of report cards with name, date, class, and school year label.
-        Only titles and dates: the report itself cannot be read through this
-        tool.
     """
     try:
         reports_list = []
@@ -1858,479 +832,664 @@ def get_reports() -> list[dict[str, Any]]:
         return reports_list
 
     except Exception as e:
-        return [{"error": _tool_error(e, "Failed to retrieve reports")}]
+        return [{"error": f"Failed to retrieve reports: {e!s}"}]
 
 
-@_tool
+# Elements fetched with get_planned_elements, by id, so the detail tools can
+# find an element's type and platform without listing the planner again.
+_planner_index: dict[str, tuple[str, int]] = {}
+# Asked along with the planner list, so each element carries what its detail
+# page holds (description, attachments, links, to-dos) without a request each.
+# Asking for any `includes` drops the default ones, hence icon/courses/locations.
+_PLANNER_LIST_INCLUDES = ",".join(
+    (
+        "icon",
+        "courses",
+        "locations",
+        "attachments",
+        "weblinks",
+        "deeplinks",
+        "partner-weblinks",
+        "public-info",
+        "planned-to-dos",
+    )
+)
+# Upper bound on the folders a tool walks, so a large course stays quick.
+_MAX_FOLDERS = 40
+_DETAIL_KEYS = ("description", "attachments", "links", "links_without_url", "to_dos")
+
+
+def _planner_element_summary(element: Any) -> dict[str, Any]:
+    period = element.period
+    assignment_type = element.assignment_type.name if element.assignment_type else None
+    return {
+        "id": str(element.id),
+        "platform_id": element.platform_id,
+        "name": element.name,
+        "type": element.planned_element_type,
+        "type_label": content.type_label(element.planned_element_type),
+        "is_exam": content.is_exam(element.name, assignment_type),
+        "from": period.date_time_from.strftime("%Y-%m-%d %H:%M"),
+        "to": period.date_time_to.strftime("%Y-%m-%d %H:%M"),
+        "color": element.color,
+        "courses": [c.name for c in element.courses],
+        "unconfirmed": element.unconfirmed,
+        "pinned": element.pinned,
+        "assignment_type": assignment_type,
+    }
+
+
+def _planner_list(
+    session: Smartschool,
+    from_date: date,
+    till_date: date,
+    types: list[str] | None,
+) -> list[dict[str, Any]]:
+    """
+    The planner elements of the logged-in user, with their content.
+
+    The same request as the library's ``PlannedElements``, plus ``includes``:
+    the library has no way to ask for them.
+    """
+    params = {
+        "from": from_date.isoformat(),
+        "to": till_date.isoformat(),
+        "includes": _PLANNER_LIST_INCLUDES,
+    }
+    if types:
+        params["types"] = ",".join(types)
+    user_id = session.authenticated_user["id"]
+    elements = session.json(
+        f"/planner/api/v1/planned-elements/user/{user_id}", data=params
+    )
+    return elements if isinstance(elements, list) else []
+
+
+def _same_test(lesson: dict[str, Any], other: dict[str, Any]) -> bool:
+    """
+    Whether *lesson* repeats the assignment *other*.
+
+    A test is often planned twice, as a lesson and as an assignment, on the
+    same day and for the same course, the assignment's name sometimes longer
+    ("... (see info)"). The assignment is the one to keep.
+    """
+    if lesson["type"] != "planned-lessons" or other["type"] == "planned-lessons":
+        return False
+    if lesson["from"][:10] != other["from"][:10]:
+        return False
+    if not set(lesson["courses"]) & set(other["courses"]):
+        return False
+    a, b = lesson["name"].strip().lower(), other["name"].strip().lower()
+    return bool(a and b) and (a.startswith(b) or b.startswith(a))
+
+
+def _planner_detail_url(element_type: str, platform_id: int, element_id: str) -> str:
+    return f"/planner/api/v1/{element_type}/{platform_id}/{element_id}"
+
+
+def _locate_planner_element(
+    session: Smartschool, element_id: str, element_type: str | None
+) -> tuple[str, int]:
+    """The type and platform of a planner element, listing the planner if needed."""
+    known = _planner_index.get(element_id)
+    if known and element_type in (None, known[0]):
+        return known
+    today = date.today()
+    for element in PlannedElements(
+        session,
+        from_date=today - timedelta(days=30),
+        till_date=today + timedelta(days=120),
+        element_types=element_type,
+    ):
+        _planner_index[str(element.id)] = (
+            element.planned_element_type,
+            element.platform_id,
+        )
+    if element_id not in _planner_index:
+        raise LookupError(
+            f"Planner element {element_id} not found between 30 days ago "
+            "and 120 days ahead"
+        )
+    return _planner_index[element_id]
+
+
+@mcp.tool()
 def get_planned_elements(
     days_ahead: int = 34,
-    from_date: str | None = None,
-    to_date: str | None = None,
-    types: str | None = None,
-    includes: str | None = None,
+    types: list[str] | None = None,
+    include_details: bool = False,
 ) -> dict[str, Any]:
     """
-    Retrieve planned elements from the Smartschool planner.
+    Retrieve what the Smartschool planner holds for the coming days.
 
-    Default matches the website calendar: from/to only, no types filter, so
-    lessons, activities, placeholders, assignments, and to-dos are included.
-    Pass types for a sidebar subset (comma-separated planned-* values).
+    By default: assignments, to-dos, events (exam periods, report days, parent
+    evenings), days off and school activities, plus the lessons that are an
+    exam or a test (``is_exam``). The rest of the timetable is left out; ask
+    for it with ``types``.
 
     Args:
-        days_ahead: Number of days ahead when from_date/to_date are omitted
-            (default: 34)
-        from_date: Inclusive start date YYYY-MM-DD (default: today)
-        to_date: Inclusive end date YYYY-MM-DD (default: from_date + days_ahead)
-        types: Optional comma-separated plannedElementType filter
-        includes: Optional comma-separated expansions (icon,courses,locations,…)
+        days_ahead: Number of days ahead to fetch (default: 34)
+        types: Planner types to return, e.g. ["planned-lessons"]. Known types:
+            planned-assignments, planned-to-dos, planned-lessons,
+            planned-meetings, planned-lesson-free-days,
+            planned-school-activities, planned-activities, planned-generics,
+            planned-placeholders, planned-lesson-cluster-moments.
+        include_details: Also return each element's description, attachments
+            and links (see get_planned_element_details). They come with the
+            same request; the option only makes the result longer.
 
     Returns:
-        Dictionary with planned elements including id, dates, courses and
-        assignment types. ``description`` and ``upload_folders`` are always
-        empty on this list (live-checked, whatever the includes); call
-        ``get_planner_attachments`` with the element ``id`` for the study
-        material and attachments. Only ``courses`` and ``locations`` change
-        the response; other include names can give an error.
+        Dictionary with the planned elements: id, name, type, readable
+        ``type_label``, ``is_exam``, dates, courses, assignment type, and
+        whether the element has more to show: ``has_attachments``,
+        ``has_links`` (links with an address, or Bookwidget titles without
+        one) and ``has_description`` (a description that says more than the
+        name). ``details`` holds that content when asked for.
     """
     try:
-        start, end = _planner_window(from_date, to_date, days_ahead)
-        elements_list = fetch_calendar(
-            _session(),
-            start,
-            end,
-            _csv_or_none(types),
-            _csv_or_none(includes),
-        )
+        session = _session()
+        from_date = date.today()
+        till_date = from_date + timedelta(days=days_ahead)
+        base_url = session.create_url("/")
+        raw_elements = [
+            (PlannedElement(**raw), raw)
+            for raw in _planner_list(session, from_date, till_date, types)
+        ]
+        elements_list = []
+        for element, raw in sorted(
+            raw_elements, key=lambda pair: pair[0].period.date_time_from
+        ):
+            _planner_index[str(element.id)] = (
+                element.planned_element_type,
+                element.platform_id,
+            )
+            summary = _planner_element_summary(element)
+            detail = content.planner_detail(raw, base_url)
+            summary.update(content.content_flags(detail))
+            if include_details:
+                summary["details"] = {key: detail[key] for key in _DETAIL_KEYS}
+            if not types and (
+                summary["type"] in content.EMPTY_SLOT_TYPES
+                or (summary["type"] == "planned-lessons" and not summary["is_exam"])
+            ):
+                continue
+            elements_list.append(summary)
+        if not types:
+            elements_list = [
+                s
+                for s in elements_list
+                if not any(_same_test(s, other) for other in elements_list)
+            ]
 
         return {
             "planned_elements": elements_list,
             "total": len(elements_list),
             "period": {
-                "from": start.strftime("%Y-%m-%d"),
-                "to": end.strftime("%Y-%m-%d"),
+                "from": from_date.strftime("%Y-%m-%d"),
+                "to": till_date.strftime("%Y-%m-%d"),
             },
         }
 
     except Exception as e:
-        return {"error": _tool_error(e, "Failed to retrieve planned elements")}
+        return {"error": f"Failed to retrieve planned elements: {e!s}"}
 
 
-def _planner_window(
-    from_date: str | None, to_date: str | None, days_ahead: int
-) -> tuple[date, date]:
-    """Inclusive date window. Rejects a reversed or overly long range."""
-    start = date.fromisoformat(from_date) if from_date else date.today()
-    end = date.fromisoformat(to_date) if to_date else start + timedelta(days=days_ahead)
-    if end < start:
-        raise ValueError("to_date is before from_date")
-    if (end - start).days > _MAX_PLANNER_DAYS:
-        raise ValueError(f"Date range is longer than {_MAX_PLANNER_DAYS} days")
-    return start, end
-
-
-def _merge_planner_detail(
-    row: dict[str, Any], detail: dict[str, Any] | None
-) -> dict[str, Any]:
-    if not detail:
-        return row
-    merged = dict(row)
-    if not merged.get("description") and detail.get("description"):
-        merged["description"] = detail["description"]
-    if not merged.get("upload_folders") and detail.get("upload_folders"):
-        merged["upload_folders"] = detail["upload_folders"]
-    return merged
-
-
-@_tool
-def get_planner_attachments(
-    element_id: str,
-    from_date: str | None = None,
-    to_date: str | None = None,
-    days_ahead: int = 34,
-    include_raw: bool = False,
+@mcp.tool()
+def get_planned_element_details(
+    element_id: str, element_type: str | None = None
 ) -> dict[str, Any]:
     """
-    List upload folders and files attached to one planner item.
-
-    Refetches the calendar with the website include list
-    ``icon,courses,locations,upload-folders,labels`` and returns the matching
-    element's id, description, and upload folders.
-
-    The captured library fixtures do not contain those fields. Key names
-    (``uploadFolders``, ``description``, ``publicInfo``) are inferred, not
-    live-verified. When the calendar row is an assignment and still has no
-    description and no folders, this also tries
-    ``GET /planner/api/v1/planned-assignments/{platformId}/{assignmentId}``.
-    That path is catalogued; its body is not.
+    Read one planner element in full: description, attachments and links.
 
     Args:
-        element_id: Planner element UUID from get_schedule or get_planned_elements.
-        from_date: Inclusive start YYYY-MM-DD (default: today).
-        to_date: Inclusive end YYYY-MM-DD (default: from_date + days_ahead).
-        days_ahead: Used when to_date is omitted (default: 34).
-        include_raw: Add key names and URL-like fields from the calendar row
-            and, when the school sends one, the assignment-detail JSON.
-            Each ``attachments[]`` item also includes its id, mimeType, and
-            visibility, so those can be compared with ``file_id``. File names,
-            query strings, cookies, and secret-looking values are left out.
-            Use this when ``download_planner_file`` cannot find a path.
+        element_id: The element's ``id`` from get_planned_elements.
+        element_type: Its ``type``; looked up when left out.
+
+    Returns:
+        The element with its description as text, ``attachments`` (id, name,
+        size; download them with download_planned_attachment), ``links``
+        (label, url, kind: weblink, partner, course_link, document or
+        description; a document link carries ``course_id`` and ``doc_id``:
+        a file for download_course_document, a folder to open as
+        ``folder_id`` with get_course_documents) and ``links_without_url``:
+        titles linked in
+        the description without an address, usually Bookwidgets to look up
+        with get_learning_path.
     """
     try:
-        safe_id = element_id_or_none(element_id)
-        if safe_id is None:
-            return {"error": "Invalid element_id"}
-        start, end = _planner_window(from_date, to_date, days_ahead)
         session = _session()
-        raw_rows = fetch_calendar_raw(
-            session, start, end, None, PLANNER_ATTACHMENT_INCLUDES
+        element_type, platform_id = _locate_planner_element(
+            session, element_id, element_type
         )
-        raw_row = next(
-            (
-                item
-                for item in raw_rows
-                if str(item.get("id") or "").lower() == safe_id.lower()
-            ),
-            None,
-        )
-        if raw_row is None:
-            return {
-                "error": (
-                    f"Planner element {safe_id} not found between "
-                    f"{start.isoformat()} and {end.isoformat()}"
-                )
-            }
-        row = calendar_element_dict(raw_row)
-
-        detail_status = "not_called"
-        element_type = row.get("type")
-        needs_detail = element_type in ASSIGNMENT_DETAIL_TYPES and (
-            not row.get("description") and not row.get("upload_folders")
-        )
-        platform_id = row.get("platform_id")
-        detail_raw: dict[str, Any] | None = None
-        if needs_detail and isinstance(platform_id, int):
-            detail_status = "unavailable"
-            detail = fetch_assignment_detail(session, platform_id, safe_id)
-            if detail is not None:
-                detail_status = "parsed"
-                row = _merge_planner_detail(row, detail)
-        if (
-            include_raw
-            and element_type in ASSIGNMENT_DETAIL_TYPES
-            and isinstance(platform_id, int)
-            and not isinstance(platform_id, bool)
-        ):
-            try:
-                loaded = session.json(
-                    f"/planner/api/v1/planned-assignments/{platform_id}/{safe_id}"
-                )
-            except Exception:
-                loaded = None
-            if isinstance(loaded, dict):
-                detail_raw = loaded
-
-        payload: dict[str, Any] = {
-            "element_id": safe_id,
-            "name": row.get("name") or "",
-            "type": element_type,
-            "description": row.get("description") or "",
-            "upload_folders": row.get("upload_folders") or [],
-            "period": {"from": start.isoformat(), "to": end.isoformat()},
-            "live_verified": False,
-            "detail_fetch": {
-                "path": (
-                    "/planner/api/v1/planned-assignments/{platformId}/{assignmentId}"
-                ),
-                "status": detail_status,
-                "body_verified": False,
-            },
-        }
-        if include_raw:
-            payload["raw"] = {
-                "attachment": attachment_diagnostic(raw_row),
-                "detail": (
-                    json_diagnostic(detail_raw)
-                    if detail_raw is not None
-                    else {"present": False, "keys": [], "url_fields": []}
-                ),
-            }
-        return payload
+        url = _planner_detail_url(element_type, platform_id, element_id)
+        return content.planner_detail(session.json(url), session.create_url("/"))
     except Exception as e:
-        return {"error": _tool_error(e, "Failed to retrieve planner attachments")}
+        return {"error": f"Failed to retrieve planner element details: {e!s}"}
 
 
-_PLANNER_DOWNLOAD_FAILED = (
-    "Dit plannerbestand heeft geen werkend downloadpad. "
-    "Er stond geen link van de school in de gegevens, "
-    "en de paden die we daarna probeerden gaven geen bestand terug. "
-    "Vraag de bijlagen opnieuw op met include_raw op true "
-    "en vergelijk het id, het bestandstype en de zichtbaarheid "
-    "van attachments met het file_id. Bestandsnamen staan daar niet bij."
-)
-
-
-def _reported_download_path(target: str) -> str:
-    return target.split("?", 1)[0].split("#", 1)[0]
-
-
-def _response_is_download(resp: object) -> bool:
-    """True for a file body. HTML and JSON error envelopes are not files."""
-    if not getattr(resp, "ok", False):
-        return False
-    content = getattr(resp, "content", b"")
-    if not isinstance(content, (bytes, bytearray)) or not content:
-        return False
-    headers = getattr(resp, "headers", None)
-    content_type = (header_value(headers, "Content-Type") or "").split(";", 1)[0]
-    content_type = content_type.strip().lower()
-    if content_type in {"text/html", "application/xhtml+xml"}:
-        return False
-    head = bytes(content[:300]).lstrip().lower()
-    if head.startswith((b"<!doctype", b"<html", b"<head")):
-        return False
-    disposition = header_value(headers, "Content-Disposition") or ""
-    unnamed_json = (
-        content_type == "application/json" and "filename" not in disposition.lower()
-    )
-    return not unnamed_json
-
-
-_HTML_CONTENT_TYPES = {"text/html", "application/xhtml+xml"}
-
-
-def _portal_page_instead_of_file(resp: object, expected_mime: str = "") -> bool:
-    """True when Smartschool answered with a web page instead of the file.
-
-    An expired session redirects a download to ``/login``; saving that page
-    as ``rapport.pdf`` hides the real problem. A file that is itself HTML
-    (``expected_mime`` mentions html) is still accepted.
+def _save_download(data: bytes, name: str, save_path: str | None) -> Path:
     """
-    url = getattr(resp, "url", None)
-    if isinstance(url, str) and url and _url_is_auth(url):
-        return True
-    if "html" in (expected_mime or "").lower():
-        return False
-    headers = getattr(resp, "headers", None)
-    content_type = (header_value(headers, "Content-Type") or "").split(";", 1)[0]
-    if content_type.strip().lower() in _HTML_CONTENT_TYPES:
-        return True
-    content = getattr(resp, "content", b"")
-    if isinstance(content, (bytes, bytearray)):
-        head = bytes(content[:300]).lstrip().lower()
-        if head.startswith((b"<!doctype html", b"<html", b"<head")):
-            return True
-    return False
+    Write a download under *save_path* or ~/Downloads/smartschool/.
+
+    The name is reduced to its last path component (no path traversal) and an
+    existing file is never overwritten: a counter suffix is added instead
+    (``report (1).pdf``).
+    """
+    download_dir = (
+        Path(save_path) if save_path else Path.home() / "Downloads" / "smartschool"
+    )
+    download_dir.mkdir(parents=True, exist_ok=True)
+    file_path = download_dir / (Path(name).name or "download")
+    counter = 1
+    stem = file_path.stem
+    while file_path.exists():
+        file_path = download_dir / f"{stem} ({counter}){file_path.suffix}"
+        counter += 1
+    file_path.write_bytes(data)
+    return file_path
 
 
-_PORTAL_PAGE_ERROR = (
-    "Smartschool sent a web page instead of the file. "
-    "The session may have expired; try again."
-)
-
-
-@_tool
-def download_planner_file(
+@mcp.tool()
+def download_planned_attachment(
     element_id: str,
-    file_id: str,
-    from_date: str | None = None,
-    to_date: str | None = None,
-    days_ahead: int = 34,
+    attachment_id: str,
+    element_type: str | None = None,
     save_path: str | None = None,
 ) -> dict[str, Any]:
     """
-    Download one file from a planner item's upload folders.
+    Download an attachment of a planner element.
 
-    A same-host URL in the calendar or assignment-detail payload is tried
-    first. If that is missing or does not return a file, GET tries
-    attachment routes
-    (``/planner/api/v1/planned-assignments/{platformId}/{assignmentId}/attachments/{attachmentId}``
-    with and without ``/download``, plus planned-elements variants) and then
-    the older ``/files/`` guesses. All of those stay on the same host. The
-    first response that looks like a file is saved. ``download_path`` says
-    which path worked. ``live_verified`` stays false: none of those paths is
-    confirmed against the website.
-
-    If every path fails, the error is in Dutch and lists the paths that were
-    tried. Ask for ``get_planner_attachments(..., include_raw=true)`` to see
-    attachment id, mimeType, and visibility (not file names) plus any links.
+    Files are saved to *save_path* when provided, otherwise to
+    ~/Downloads/smartschool/. Existing files are never overwritten.
 
     Args:
-        element_id: Planner element UUID.
-        file_id: File id from get_planner_attachments.
-        from_date: Inclusive start YYYY-MM-DD (default: today).
-        to_date: Inclusive end YYYY-MM-DD (default: from_date + days_ahead).
-        days_ahead: Used when to_date is omitted (default: 34).
-        save_path: Optional subfolder of the download folder
-            (~/Downloads/smartschool/, or SMARTSCHOOL_DOWNLOAD_DIR).
-            Paths outside that folder are refused.
+        element_id: The element's ``id`` from get_planned_elements.
+        attachment_id: The attachment's ``id`` from get_planned_element_details.
+        element_type: The element's ``type``; looked up when left out.
+        save_path: Optional directory to save the file into.
+
+    Returns:
+        Dictionary with the saved file path, name, mime type and bytes written.
     """
     try:
-        download_dir = _download_dir(save_path)
-        safe_id = element_id_or_none(element_id)
-        if safe_id is None:
-            return {"error": "Invalid element_id"}
-        safe_file = file_id.strip()
-        if not safe_file or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", safe_file):
-            return {"error": "Invalid file_id"}
-        start, end = _planner_window(from_date, to_date, days_ahead)
         session = _session()
-        raw_rows = fetch_calendar_raw(
-            session, start, end, None, PLANNER_ATTACHMENT_INCLUDES
+        element_type, platform_id = _locate_planner_element(
+            session, element_id, element_type
         )
-        element = next(
+        url = _planner_detail_url(element_type, platform_id, element_id)
+        attachment = next(
             (
-                raw
-                for raw in raw_rows
-                if str(raw.get("id") or "").lower() == safe_id.lower()
+                a
+                for a in session.json(url).get("attachments") or []
+                if str(a.get("id")) == str(attachment_id)
             ),
             None,
         )
-        platform_id = element.get("platformId") if isinstance(element, dict) else None
-        element_type = (
-            element.get("plannedElementType") if isinstance(element, dict) else None
-        )
-        found = file_download(raw_rows, safe_id, safe_file)
-        if found is None and (
-            isinstance(platform_id, int)
-            and not isinstance(platform_id, bool)
-            and element_type in ASSIGNMENT_DETAIL_TYPES
-        ):
-            try:
-                detail = session.json(
-                    f"/planner/api/v1/planned-assignments/{platform_id}/{safe_id}"
-                )
-            except Exception:
-                detail = None
-            if isinstance(detail, dict):
-                found = file_download([{**detail, "id": safe_id}], safe_id, safe_file)
-        if found is None:
+        if attachment is None:
             return {
-                "error": f"File {safe_file} not found on planner element {safe_id}",
-                "live_verified": False,
+                "error": f"Attachment {attachment_id} not found in element {element_id}"
             }
-        candidates = planner_download_candidates(
-            session,
-            element_id=safe_id,
-            file_info=found,
-            platform_id=platform_id if isinstance(platform_id, int) else None,
-        )
-        tried: list[str] = []
-        saved_response = None
-        used_path = ""
-        for target in candidates:
-            reported = _reported_download_path(target)
-            tried.append(reported)
-            try:
-                resp = session.get(target)
-            except Exception:
-                continue
-            if _response_is_download(resp):
-                saved_response = resp
-                used_path = reported
-                break
-        if saved_response is None:
-            return {
-                "error": _PLANNER_DOWNLOAD_FAILED,
-                "file_id": safe_file,
-                "name": found.get("name") or "",
-                "tried": tried,
-                "live_verified": False,
-            }
-        saved_name = filename_from_response(
-            str(found.get("name") or "") or f"planner_{safe_file}",
-            str(found.get("mime_type") or ""),
-            saved_response,
-        )
-        saved = _write_download(saved_response.content, saved_name, download_dir)
-        saved.update(
-            {
-                "element_id": safe_id,
-                "file_id": safe_file,
-                "mime_type": found.get("mime_type") or "",
-                "download_path": used_path,
-                "live_verified": False,
-            }
-        )
-        return saved
+        resp = session.get(f"{url}/attachments/{attachment_id}/download")
+        if not resp.ok:
+            return {"error": f"Download failed: HTTP {resp.status_code}"}
+        name = attachment.get("fileName") or f"attachment_{attachment_id}"
+        file_path = _save_download(resp.content, name, save_path)
+        return {
+            "attachment_id": attachment_id,
+            "name": file_path.name,
+            "mime_type": attachment.get("mimeType"),
+            "saved_to": str(file_path),
+            "bytes_written": len(resp.content),
+        }
     except Exception as e:
-        return {"error": _tool_error(e, "Failed to download planner file")}
+        return {"error": f"Failed to download planner attachment: {e!s}"}
 
 
-DOWNLOAD_DIR_ENV = "SMARTSCHOOL_DOWNLOAD_DIR"
+# ── Course documents and leerpaden ────────────────────────────────────────────
 
 
-class DownloadPathError(ValueError):
-    """``save_path`` points outside the download folder."""
+def _find_course(session: Smartschool, course: str) -> Any:
+    """A course from the top navigation, by id or by (part of) its name."""
+    courses = list(TopNavCourses(session))
+    wanted = str(course).strip()
+    if wanted.isdigit():
+        for candidate in courses:
+            if str(candidate.id) == wanted:
+                return candidate
+    matches = [c for c in courses if wanted.lower() in c.name.lower()]
+    exact = [c for c in matches if c.name.lower() == wanted.lower()]
+    if len(exact) == 1 or len(matches) == 1:
+        return (exact or matches)[0]
+    names = ", ".join(f"{c.name} (id {c.id})" for c in matches or courses)
+    raise LookupError(
+        f"{'Several' if matches else 'No'} courses match {course!r}: {names}"
+    )
 
 
-def _download_root() -> Path:
-    """Folder every download lands in: ``SMARTSCHOOL_DOWNLOAD_DIR`` or
-    ``~/Downloads/smartschool``. Resolved, so symlinks are followed once here."""
-    raw = os.environ.get(DOWNLOAD_DIR_ENV, "").strip()
-    root = Path(raw).expanduser() if raw else Path.home() / "Downloads" / "smartschool"
-    return root.resolve()
+def _course_list(session: Smartschool) -> list[dict[str, Any]]:
+    return [
+        {"id": c.id, "name": c.name, "teacher": c.teacher}
+        for c in TopNavCourses(session)
+    ]
 
 
-def _download_dir(save_path: str | None) -> Path:
-    """Directory for one download, always inside the download root.
-
-    ``save_path`` comes from the model, and the model reads school messages
-    that anyone on the platform can write. In HTTP/universal mode it comes
-    from a remote user. Without this check a crafted attachment name plus
-    ``save_path`` could create e.g. a ``.pth`` file in site-packages or a
-    LaunchAgent. A relative ``save_path`` is a subfolder of the root; an
-    absolute one must resolve inside it.
-    """
-    root = _download_root()
-    if save_path is None or not save_path.strip():
-        return root
-    candidate = Path(save_path.strip()).expanduser()
-    if not candidate.is_absolute():
-        candidate = root / candidate
-    resolved = candidate.resolve()
-    if resolved != root and not resolved.is_relative_to(root):
-        raise DownloadPathError(
-            f"save_path must be inside the download folder {root}. "
-            f"Use a subfolder name, or set {DOWNLOAD_DIR_ENV} to change the folder."
+def _document_folder(session: Smartschool, course: Any, folder_id: int | None) -> Any:
+    browse_url = None
+    if folder_id:
+        browse_url = (
+            f"/Documents/Index/Index/courseID/{course.id}"
+            f"/parentID/{folder_id}/ssID/{course.platform_id}"
         )
-    return resolved
+    return FolderItem(
+        session=session,
+        parent=None,
+        course=course,
+        name="(Root)",
+        browse_url=browse_url,
+    )
 
 
-def _write_download(
-    content: bytes, raw_name: str, download_dir: Path
-) -> dict[str, Any]:
-    """Save ``content`` under ``download_dir`` without overwriting anything.
-
-    The name is reduced to its last path component. ``O_EXCL`` refuses an
-    existing file and an existing (even dangling) symlink, so a planted link
-    cannot redirect the write; the name then gets a `` (n)`` suffix.
-    """
-    download_dir.mkdir(parents=True, exist_ok=True)
-    filename = Path(raw_name).name
-    if filename in {"", ".", ".."}:
-        filename = "download"
-    stem = Path(filename).stem
-    suffix = Path(filename).suffix
-    file_path = download_dir / filename
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
-    counter = 1
-    while True:
-        try:
-            fd = os.open(file_path, flags, 0o666)
-            break
-        except FileExistsError:
-            file_path = download_dir / f"{stem} ({counter}){suffix}"
-            counter += 1
-    with os.fdopen(fd, "wb") as handle:
-        handle.write(content)
+def _document_entry(item: Any) -> dict[str, Any]:
+    if isinstance(item, FolderItem):
+        match = re.search(r"parentID/(\d+)", item.browse_url or "")
+        return {
+            "kind": "folder",
+            "folder_id": int(match.group(1)) if match else None,
+            "name": item.name,
+        }
+    if isinstance(item, InternetShortcut):
+        return {"kind": "link", "name": item.name, "url": item.link}
     return {
-        "name": file_path.name,
-        "saved_to": str(file_path),
-        "bytes_written": len(content),
+        "kind": "file",
+        "doc_id": item.id,
+        "name": item.name,
+        "mime_type": item.mime_type,
+        "size_kb": item.size_kb,
+        "modified": str(item.last_modified),
     }
 
 
-@_tool
+@mcp.tool()
+def get_course_documents(
+    course: str | None = None, folder_id: int | None = None
+) -> dict[str, Any]:
+    """
+    List the Documenten of a course, one folder at a time.
+
+    Args:
+        course: Course id or (part of) its name. Leave out to list the courses.
+        folder_id: Folder to open (``folder_id`` of a folder entry); the
+            course's top folder when left out.
+
+    Returns:
+        The folder's entries: folders (``folder_id``), files (``doc_id``,
+        download with download_course_document) and web links (``url``).
+    """
+    try:
+        session = _session()
+        if not course:
+            return {"courses": _course_list(session)}
+        found = _find_course(session, course)
+        entries = [
+            _document_entry(item)
+            for item in _document_folder(session, found, folder_id).items
+        ]
+        return {
+            "course": {"id": found.id, "name": found.name},
+            "folder_id": folder_id,
+            "entries": entries,
+            "total": len(entries),
+        }
+    except Exception as e:
+        return {"error": f"Failed to retrieve course documents: {e!s}"}
+
+
+@mcp.tool()
+def download_course_document(
+    course: str,
+    doc_id: int,
+    folder_id: int | None = None,
+    save_path: str | None = None,
+) -> dict[str, Any]:
+    """
+    Download a file from a course's Documenten.
+
+    Files are saved to *save_path* when provided, otherwise to
+    ~/Downloads/smartschool/. Existing files are never overwritten.
+
+    Args:
+        course: Course id or (part of) its name.
+        doc_id: The file's ``doc_id`` from get_course_documents (or the
+            ``document`` of a planner link).
+        folder_id: The folder holding the file; when left out, the course's
+            folders are searched.
+        save_path: Optional directory to save the file into.
+
+    Returns:
+        Dictionary with the saved file path, name, mime type and bytes written.
+    """
+    try:
+        session = _session()
+        found = _find_course(session, course)
+        pending = [_document_folder(session, found, folder_id)]
+        visited = 0
+        while pending and visited < _MAX_FOLDERS:
+            folder = pending.pop(0)
+            visited += 1
+            for item in folder.items:
+                if isinstance(item, FolderItem):
+                    if folder_id is None:
+                        pending.append(item)
+                elif item.id == doc_id and not isinstance(item, InternetShortcut):
+                    file_path = _save_download(
+                        item.download(), item.filename, save_path
+                    )
+                    return {
+                        "doc_id": doc_id,
+                        "name": file_path.name,
+                        "mime_type": item.mime_type,
+                        "saved_to": str(file_path),
+                        "bytes_written": file_path.stat().st_size,
+                    }
+        return {"error": f"Document {doc_id} not found in {found.name}"}
+    except Exception as e:
+        return {"error": f"Failed to download course document: {e!s}"}
+
+
+def _lpaths_page(session: Smartschool, url: str) -> str | None:
+    """A leerpaden page, or None when the course has no leerpaden module."""
+    response = session.get(url)
+    if "/Lpaths/" not in response.url:
+        return None
+    return response.text
+
+
+@mcp.tool()
+def get_learning_paths(course: str | None = None) -> dict[str, Any]:
+    """
+    List the leerpaden of a course, with the folders they are kept in.
+
+    Args:
+        course: Course id or (part of) its name. Leave out to list the courses.
+
+    Returns:
+        The course's leerpaden (``id``, ``name``, folder path); open one with
+        get_learning_path.
+    """
+    try:
+        session = _session()
+        if not course:
+            return {"courses": _course_list(session)}
+        found = _find_course(session, course)
+        result: dict[str, Any] = {"course": {"id": found.id, "name": found.name}}
+        root = f"/Lpaths/Index/Index/courseID/{found.id}/ssID/{found.platform_id}"
+        page = _lpaths_page(session, root)
+        if page is None:
+            return {**result, "learning_paths": [], "note": "No leerpaden module"}
+
+        paths: list[dict[str, Any]] = []
+        pending: list[tuple[str, list[str]]] = [(page, [])]
+        seen: set[int] = set()
+        while pending and len(seen) < _MAX_FOLDERS:
+            page, trail = pending.pop(0)
+            for entry in content.parse_lpath_folder(page):
+                if entry["kind"] == "learning_path":
+                    paths.append({**entry, "folder": " / ".join(trail) or None})
+                elif entry["id"] and entry["id"] not in seen:
+                    seen.add(entry["id"])
+                    sub = _lpaths_page(
+                        session,
+                        f"/Lpaths/Index/Index/courseID/{found.id}"
+                        f"/parentID/{entry['id']}",
+                    )
+                    if sub is not None:
+                        pending.append((sub, [*trail, entry["name"]]))
+        return {**result, "learning_paths": paths, "total": len(paths)}
+    except Exception as e:
+        return {"error": f"Failed to retrieve learning paths: {e!s}"}
+
+
+def _course_exercises(session: Smartschool, course: Any) -> dict[int, dict[str, Any]]:
+    """The course's external exercises (Bookwidgets, ...), by exercise id."""
+    exercises: dict[int, dict[str, Any]] = {}
+    pending = [0]
+    seen: set[int] = set()
+    while pending and len(seen) < _MAX_FOLDERS:
+        parent = pending.pop(0)
+        seen.add(parent)
+        page = session.get(
+            f"/?module=Exercises&file=index&courseID={course.id}"
+            f"&parentID={parent}&ssID={course.platform_id}"
+        ).text
+        folders, found = content.parse_exercise_folder(page)
+        exercises.update(found)
+        pending.extend(f for f in folders if f not in seen and f not in pending)
+    return exercises
+
+
+def _weblink_url(session: Smartschool, course: Any, link_id: int) -> str | None:
+    """Where a course weblink points: Smartschool answers with a redirect."""
+    response = session.get(
+        f"/Weblinks/Showlink/Index/courseID/{course.id}"
+        f"/linkID/{link_id}/ssID/{course.platform_id}",
+        allow_redirects=False,
+    )
+    return response.headers.get("Location") if response.is_redirect else None
+
+
+@mcp.tool()
+def get_learning_path(
+    course: str, learning_path_id: int, resolve_links: bool = True
+) -> dict[str, Any]:
+    """
+    Show the content of a leerpad: its sections and steps.
+
+    Only the leerpad's overview is read; its steps are never opened, so the
+    pupil's progress is left untouched.
+
+    Args:
+        course: Course id or (part of) its name.
+        learning_path_id: The leerpad's ``id`` from get_learning_paths.
+        resolve_links: Look up the address of web links and exercises
+            (Bookwidgets, ...). One request per web link, plus a walk of the
+            course's exercises.
+
+    Returns:
+        The leerpad's name, ``progress_percent`` and sections; each step
+        has its ``module``
+        (documents, weblinks, exercises, ...), ``item_id`` (the ``doc_id`` for
+        documents), ``name``, ``done`` (finished by the pupil) and, when
+        resolved, ``url`` (and ``provider`` for exercises). An exercise's url
+        opens it in Smartschool, logged in as the pupil.
+    """
+    try:
+        session = _session()
+        found = _find_course(session, course)
+        page = _lpaths_page(
+            session,
+            f"/Lpaths/Viewlpath/Index/courseID/{found.id}/lpathID/{learning_path_id}",
+        )
+        if page is None:
+            return {"error": f"No leerpaden module in {found.name}"}
+        result = content.parse_lpath_view(page)
+        steps = [step for section in result["sections"] for step in section["steps"]]
+        if resolve_links:
+            exercises = (
+                _course_exercises(session, found)
+                if any(s["module"] == "exercises" for s in steps)
+                else {}
+            )
+            for step in steps:
+                if step["module"] == "weblinks" and step["item_id"]:
+                    step["url"] = _weblink_url(session, found, step["item_id"])
+                elif step["module"] == "exercises" and step["item_id"] in exercises:
+                    exercise = exercises[step["item_id"]]
+                    step["provider"] = exercise["provider"]
+                    step["url"] = session.create_url(exercise["url"])
+        return {
+            "course": {"id": found.id, "name": found.name},
+            "id": learning_path_id,
+            **result,
+            "total_steps": len(steps),
+        }
+    except Exception as e:
+        return {"error": f"Failed to retrieve learning path: {e!s}"}
+
+
+@mcp.tool()
+def get_children() -> dict[str, Any]:
+    """
+    List the children linked on Mijn kinderen for this (parent) login.
+
+    Use ``account_id`` with switch_child to change whose planner, results and
+    messages the other tools return; the session stays on the selected child.
+
+    When the user asks for a child that is not in ``children``, that child is
+    not linked on Mijn kinderen and cannot be read from this login. Do not
+    guess an id, and do not ask for a school, address, username or password.
+    A listed child on another school needs no address either: switch_child
+    follows the link and only asks for that child's birth date.
+
+    Returns:
+        Dictionary with ``children`` (account_id, name, first_name,
+        last_name, class_name, is_current), ``current`` (the active user) and
+        ``total``.
+    """
+    try:
+        return children.list_children(_session())
+    except Exception as e:
+        return {"error": f"Failed to retrieve children: {e!s}"}
+
+
+@mcp.tool()
+def switch_child(account_id: str, birth_date: str | None = None) -> dict[str, Any]:
+    """
+    Switch the session to another child linked on Mijn kinderen.
+
+    After a successful switch, get_schedule, get_planned_elements,
+    get_results, get_messages and the other tools follow that child. A child
+    on another school platform is reached through that school's one-time
+    link; that school then asks for the birth date of the child. Pass it as
+    ``birth_date``: it is sent once, never together with the password, and
+    stored once accepted, so it is asked for only the first time.
+
+    Args:
+        account_id: ``account_id`` from get_children.
+        birth_date: Birth date of that child, dd-mm-yyyy. Only needed for a
+            child on another school when switch_child asks for it.
+
+    Returns:
+        Dictionary with ``ok``, the new ``current`` user, ``switched_host``
+        when the child is on another school, and ``saved_birth_date`` when a
+        new birth date was stored.
+    """
+    try:
+        return children.switch(_session(), account_id, birth_date)
+    except Exception as e:
+        return {"error": f"Failed to switch child: {e!s}"}
+
+
+@mcp.tool()
 def get_student_support_links() -> list[dict[str, Any]]:
     """
     Retrieve student support links and resources.
@@ -2354,196 +1513,206 @@ def get_student_support_links() -> list[dict[str, Any]]:
         return links_list
 
     except Exception as e:
-        return [{"error": _tool_error(e, "Failed to retrieve support links")}]
+        return [{"error": f"Failed to retrieve support links: {e!s}"}]
 
 
-@_tool
-def get_children() -> dict[str, Any]:
-    """
-    List children linked on Mijn kinderen for this parent/co-account.
-
-    Same portal call as the website: POST /Studentcard/Student/getStudents
-    with ``X-Requested-With: XMLHttpRequest`` (without that header the portal
-    can return HTTP 500 HTML). The current child may have ``accountID`` 0;
-    switch ids are then taken from the Mijn kinderen topnav
-    (``/Studentcard/Chain/gotourl/accountID/{id}``).
-    Use ``account_id`` with switch_child to change whose Planner, results,
-    and messages the other tools return. One login does not merge every
-    child automatically — the session stays on the currently selected child.
-
-    When the user asks for a child that is not in ``children``, that child is
-    not linked on Mijn kinderen, so switch_child cannot reach them. Do not
-    guess an id. Tell the user the child is not linked on Mijn kinderen and
-    cannot be read from this login. Do not ask for a school, url, username or
-    password: a separate login is not supported yet.
-    A listed child on another school needs no school or url from the user:
-    switch_child follows the link, and asks only for the child's birth date.
-
-    Returns:
-        Dictionary with ``children``, ``current`` (the active session user),
-        and ``total``.
-    """
+def _parse_since(since: str | None) -> date | None:
+    """Parse an ISO ``YYYY-MM-DD`` string; raise ``ValueError`` if malformed."""
+    if not since:
+        return None
     try:
-        session = _session()
-        session.ensure_authenticated()
-        payload: Any = []
-        try:
-            payload = session.json(
-                "/Studentcard/Student/getStudents",
-                method="post",
-                headers=_STUDENTCARD_XHR_HEADERS,
-            )
-        except Exception:
-            payload = []
-
-        children = [_person_dict(raw) for raw in _as_child_records(payload)]
-        try:
-            html = getattr(session.get("/Studentcard"), "text", "") or ""
-            children = _merge_topnav_children(children, _children_from_topnav(html))
-        except Exception:
-            pass
-
-        current = _current_user_dict(session)
-        children = [_mark_current_child(child, current) for child in children]
-        return {
-            "children": children,
-            "current": current,
-            "total": len(children),
-        }
-    except Exception as e:
-        return {"error": _tool_error(e, "Failed to retrieve children")}
+        return date.fromisoformat(since)
+    except ValueError:
+        raise ValueError(f"since must be YYYY-MM-DD, got {since!r}") from None
 
 
-@_tool
-def switch_child(account_id: str, birth_date: str | None = None) -> dict[str, Any]:
+def _lvs_unavailable(what: str, error: Exception) -> dict[str, Any]:
+    """Error dict for an account whose Smartschool rejects the LVS request."""
+    return {
+        "error": f"Failed to retrieve {what}: the student file (LVS) is not "
+        f"available for this account (Smartschool answered: {error!s})"
+    }
+
+
+# With include_details every returned note costs one extra request.
+_MAX_NOTES_WITH_DETAILS = 50
+
+
+@mcp.tool()
+def get_student_notes(
+    limit: int = 15,
+    offset: int = 0,
+    category: str | None = None,
+    since: str | None = None,
+    include_details: bool = False,
+) -> dict[str, Any]:
     """
-    Switch the session to another linked child (Mijn kinderen).
+    Retrieve student file notes ("dossierlijnen") from the pupil-tracking
+    system (Leerlingvolgsysteem / LVS), newest first.
 
-    Same portal call as the website: GET
-    /Studentcard/Chain/gotourl/accountID/{accountId}. A child on another
-    platform (e.g. De Ring) 302s to a one-time ``/otp/...`` URL; that hop is
-    followed without replaying the original host. That school then asks for
-    the birth date of the child you switch to; it is answered once with
-    ``birth_date`` or the one stored for that child in ``credentials.json``
-    (``children[].birth_date``). After a successful switch,
-    get_schedule / get_planned_elements / get_results follow the newly
-    selected child. Get account_id from get_children.
+    Notes marked confidential (private) by the school are never returned; only
+    their number is reported under ``filters.private_hidden``.
 
     Args:
-        account_id: Linked-account id from get_children (not the Planner
-            user id). Digits, letters, underscore, and hyphen only.
-        birth_date: Birth date of that child, ``YYYY-MM-DD``. Only needed for a
-            child on another school platform that has none stored.
+        limit: Maximum number of notes to return (default: 15, minimum 0).
+            With include_details the maximum is 50.
+        offset: Number of notes to skip from the beginning (default: 0)
+        category: Only notes whose category name contains this text
+            (case-insensitive), e.g. "Mededeling"
+        since: Only notes dated on or after this day, format YYYY-MM-DD
+        include_details: Also fetch the content of each returned note (one
+            extra request per note, default: False). For announcements the
+            text is returned as plain text, not HTML; ``fields`` holds the
+            other labelled values (e.g. the teacher). ``details`` also holds
+            ``choice`` (the label chosen in the note's select field, e.g. the
+            measure of an order measure; "" when there is none) and
+            ``attachments`` (a list of ``{"name", "mime"}``; file contents are
+            not available). A note whose details
+            cannot be fetched gets ``details: null`` plus ``details_error``;
+            their number is reported under ``filters.details_failed``.
 
     Returns:
-        Dictionary with the new ``current`` user, optional ``switched_host``
-        when the chain landed on another school platform, and ``ok``. A
-        ``birth_date`` the other school accepted is stored for that child
-        (``saved_birth_date``), so it is only asked for once.
+        Dictionary with notes list, pagination info and applied filters.
+        ``pagination.limit`` is the limit actually applied.
+
+    Examples:
+        - get_student_notes() -> Latest 15 notes (headers only)
+        - get_student_notes(category="Te laat") -> Only that category
+        - get_student_notes(since="2026-09-01", include_details=True) -> Notes
+          since 1 September, with their content
     """
     try:
-        safe_id = _safe_account_id(account_id)
-        if safe_id is None:
-            return {"error": "Invalid account_id"}
-        child_birth: str | None = None
-        if birth_date:
-            try:
-                child_birth = normalize_birth_date(birth_date)
-            except CredentialStoreError:
-                return {"error": "birth_date must be YYYY-MM-DD, e.g. 2014-03-21"}
-
+        since_date = _parse_since(since)
         session = _session()
-        session.ensure_authenticated()
-        origin_host = urlparse(session.create_url("/")).netloc
-        path = f"/Studentcard/Chain/gotourl/accountID/{safe_id}"
-        stored_birth = _stored_child_birth_date(session, safe_id)
-        # Remember a date the other school accepted, once. The child's name is
-        # read now, while the session is still on the school it belongs to.
-        new_birth = child_birth if child_birth and child_birth != stored_birth else None
-        child_name = _child_name_for(safe_id) if new_birth else None
-        child_birth = child_birth or stored_birth
-        session.__dict__.pop("_verified_birth", None)
-        response, switched_host, blocked_login = _follow_child_switch_redirects(
-            session, path, child_birth
-        )
-        if response is None and not blocked_login:
-            return {"error": "Child switch failed: empty response"}
-        status = getattr(response, "status_code", 0) if response is not None else 0
-        if (
-            response is not None
-            and not blocked_login
-            and status not in _REDIRECT_STATUSES
-            and not getattr(response, "ok", True)
-        ):
-            return {"error": f"Child switch failed: HTTP {status}"}
 
-        if response is not None:
-            switched_host = _follow_switched_host(session, response) or switched_host
-        landing = blocked_login or str(getattr(response, "url", "") or "")
-        if blocked_login or _url_is_login(landing):
-            if origin_host:
-                _retarget_session_host(session, f"https://{origin_host}/")
-            auth_kind = (
-                "login page"
-                if _url_is_login(blocked_login or landing)
-                else "authentication page"
-            )
-            error = (
-                f"Child switch landed on the other school's {auth_kind}; "
-                "not submitting this account's password there"
-            )
-            if _path_is(blocked_login or landing, "account-verification"):
-                if child_birth:
-                    error = (
-                        "The other school did not accept the birth date for "
-                        "this child. Nothing else was sent; check the date and "
-                        "try again."
-                    )
-                else:
-                    error = (
-                        "The other school asks for the birth date of this "
-                        "child. Ask the user for it and call switch_child "
-                        "again with birth_date (YYYY-MM-DD); it is stored "
-                        "once accepted. Nothing was sent."
-                    )
-            failed: dict[str, Any] = {
-                "ok": False,
-                "error": error,
-                "account_id": safe_id,
+        limit = max(0, limit)
+        offset = max(0, offset)
+        if include_details:
+            limit = min(limit, _MAX_NOTES_WITH_DETAILS)
+
+        visible = []
+        private_hidden = 0
+        for note in StudentNotes(session, since=since_date):
+            if note.private:
+                private_hidden += 1
+                continue
+            if category and category.lower() not in (note.cat_name or "").lower():
+                continue
+            if since_date and note.date.date() < since_date:
+                continue
+            visible.append(note)
+
+        visible.sort(key=lambda n: n.date, reverse=True)
+
+        end_index = offset + limit
+        notes_list = []
+        details_failed = 0
+        for note in visible[offset:end_index]:
+            note_data: dict[str, Any] = {
+                "id": note.item_id,
+                "category": note.cat_name,
+                "title": note.title,
+                "date": _safe_format_date(note.date),
+                "author": note.author,
+                "viewed": note.viewed,
+                "school_year": note.school_year,
             }
-            if switched_host:
-                failed["switched_host"] = switched_host
-            return failed
+            if include_details:
+                try:
+                    detail = StudentNoteDetails(session, item_id=note.item_id).get()
+                    note_data["details"] = {
+                        "text": detail.text,
+                        "fields": detail.fields,
+                        "date": _safe_format_date(detail.date),
+                        "choice": detail.choice,
+                        "attachments": [
+                            {"name": a.file_name, "mime": a.file_mime}
+                            for a in detail.attachments
+                        ],
+                    }
+                except Exception as e:
+                    details_failed += 1
+                    note_data["details"] = None
+                    note_data["details_error"] = f"{type(e).__name__}: {e!s}"
+            notes_list.append(note_data)
 
-        user = _authenticated_user_from_response(session, response)
-        if user is None and not _url_is_auth(landing):
-            user = _authenticated_user_from_response(session, session.get("/"))
-
-        current = (
-            _person_dict(user)
-            if isinstance(user, dict)
-            else _current_user_dict(session)
-        )
-        result: dict[str, Any] = {
-            "ok": True,
-            "account_id": safe_id,
-            "current": current,
+        total = len(visible)
+        filters: dict[str, Any] = {
+            "category": category,
+            "since": since,
+            "include_details": include_details,
+            "private_hidden": private_hidden,
         }
-        if switched_host:
-            result["switched_host"] = switched_host
-        if new_birth and session.__dict__.get("_verified_birth") == new_birth:
-            try:
-                result["saved_birth_date"] = save_child_birth_date(
-                    str(session.creds.username),
-                    safe_id,
-                    child_name or f"Kind {safe_id}",
-                    new_birth,
-                )
-            except Exception:
-                result["saved_birth_date"] = False
-        return result
+        if include_details:
+            filters["details_failed"] = details_failed
+            filters["max_limit_with_details"] = _MAX_NOTES_WITH_DETAILS
+        return {
+            "notes": notes_list,
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "total": total,
+                "returned": len(notes_list),
+                "has_more": bool(notes_list) and end_index < total,
+            },
+            "filters": filters,
+        }
+
+    except SmartSchoolRequestError as e:
+        return _lvs_unavailable("student notes", e)
     except Exception as e:
-        return {"error": _tool_error(e, "Failed to switch child")}
+        return {"error": f"Failed to retrieve student notes: {e!s}"}
+
+
+@mcp.tool()
+def get_student_absences(since: str | None = None) -> dict[str, Any]:
+    """
+    Retrieve recorded absences from the pupil-tracking system
+    (Leerlingvolgsysteem / LVS), newest first.
+
+    Args:
+        since: Only absences on or after this day, format YYYY-MM-DD
+
+    Returns:
+        Dictionary with absences list (date, code, description, info, part of
+        day "VM"/"NM", or null when not specified; school year) and the applied
+        filters.
+
+    Examples:
+        - get_student_absences() -> All recorded absences
+        - get_student_absences(since="2026-09-01") -> Absences since 1 September
+    """
+    try:
+        since_date = _parse_since(since)
+
+        absences = [
+            a
+            for a in StudentAbsences(_session(), since=since_date)
+            if not (since_date and a.date < since_date)
+        ]
+        absences.sort(key=lambda a: a.date, reverse=True)
+
+        absences_list = [
+            {
+                "date": _safe_format_date(a.date),
+                "code": a.code,
+                "description": a.description,
+                "info": a.info,
+                "part_of_day": a.part_of_day,
+                "school_year": a.school_year,
+            }
+            for a in absences
+        ]
+        return {
+            "absences": absences_list,
+            "total": len(absences_list),
+            "filters": {"since": since},
+        }
+
+    except SmartSchoolRequestError as e:
+        return _lvs_unavailable("student absences", e)
+    except Exception as e:
+        return {"error": f"Failed to retrieve student absences: {e!s}"}
 
 
 def _attachment_file_id(att: object) -> object | None:
@@ -2558,7 +1727,7 @@ def _attachment_file_id(att: object) -> object | None:
     return file_id
 
 
-@_tool
+@mcp.tool()
 def get_attachments(message_id: int) -> dict[str, Any]:
     """
     List all attachments for a specific message.
@@ -2575,7 +1744,6 @@ def get_attachments(message_id: int) -> dict[str, Any]:
         - get_attachments(249184) -> List attachments for message 249184
     """
     try:
-        raw_attachments = list(Attachments(_session(), msg_id=message_id))  # type: ignore[abstract, var-annotated]
         attachments_list = [
             {
                 "file_id": _attachment_file_id(att),
@@ -2583,7 +1751,7 @@ def get_attachments(message_id: int) -> dict[str, Any]:
                 "mime_type": getattr(att, "mime", "Unknown"),
                 "size": getattr(att, "size", "Unknown"),
             }
-            for att in raw_attachments
+            for att in Attachments(_session(), msg_id=message_id)
         ]
         return {
             "message_id": message_id,
@@ -2591,10 +1759,10 @@ def get_attachments(message_id: int) -> dict[str, Any]:
             "total": len(attachments_list),
         }
     except Exception as e:
-        return {"error": _tool_error(e, "Failed to retrieve attachments")}
+        return {"error": f"Failed to retrieve attachments: {e!s}"}
 
 
-@_tool
+@mcp.tool()
 def download_attachment(
     message_id: int,
     file_id: int,
@@ -2603,30 +1771,26 @@ def download_attachment(
     """
     Download a specific attachment from a message.
 
-    Files are saved in the download folder (~/Downloads/smartschool/, or
-    SMARTSCHOOL_DOWNLOAD_DIR), or in a subfolder of it given as *save_path*.
-    Paths outside that folder are refused. The directory is created
-    automatically. Existing files are never overwritten — a counter suffix is
-    appended instead (e.g. ``report (1).pdf``).
+    Files are saved to *save_path* when provided, otherwise to
+    ~/Downloads/smartschool/.  The directory is created automatically.
+    Existing files are never overwritten — a counter suffix is appended
+    instead (e.g. ``report (1).pdf``).
 
     Args:
         message_id: The ID of the message containing the attachment.
         file_id: The file ID of the attachment to download (from get_attachments).
-        save_path: Optional subfolder of the download folder.
+        save_path: Optional directory to save the file into.
 
     Returns:
         Dictionary with the saved file path, filename, mime type, and bytes written.
 
     Examples:
         - download_attachment(249184, 12345) -> Download to ~/Downloads/smartschool/
-        - download_attachment(249184, 12345, "rapporten") -> Download to
-          ~/Downloads/smartschool/rapporten/
+        - download_attachment(249184, 12345, "/tmp") -> Download to /tmp/
     """
     try:
-        download_dir = _download_dir(save_path)
-        session = _session()
         target_attachment = None
-        for att in Attachments(session, msg_id=message_id):  # type: ignore[abstract, var-annotated]
+        for att in Attachments(_session(), msg_id=message_id):
             if str(_attachment_file_id(att)) == str(file_id):
                 target_attachment = att
                 break
@@ -2634,48 +1798,41 @@ def download_attachment(
         if target_attachment is None:
             return {"error": f"Attachment {file_id} not found in message {message_id}"}
 
-        # Call the session directly so a login HTML page or a non-OK status is
-        # refused before writing. Attachment.download() returns the same bytes
-        # since 0.9, but does not run those checks.
-        resp = session.get(f"/?module=Messages&file=download&fileID={file_id}&target=0")
+        # The upstream library's Attachment.download() incorrectly base64-decodes the
+        # response; Smartschool actually returns raw binary.  Call the session directly.
+        resp = _session().get(
+            f"/?module=Messages&file=download&fileID={file_id}&target=0"
+        )
         if not resp.ok:
             return {"error": f"Download failed: HTTP {resp.status_code}"}
-        if _portal_page_instead_of_file(
-            resp, str(getattr(target_attachment, "mime", "") or "")
-        ):
-            return {"error": _PORTAL_PAGE_ERROR}
 
         raw_name = getattr(target_attachment, "name", "") or ""
-        saved = _write_download(
-            resp.content, raw_name or f"attachment_{file_id}", download_dir
-        )
+        filename = Path(raw_name).name or f"attachment_{file_id}"
+        file_path = _save_download(resp.content, filename, save_path)
+
         return {
             "file_id": file_id,
-            "name": saved["name"],
+            "name": filename,
             "mime_type": getattr(target_attachment, "mime", "Unknown"),
             "size": getattr(target_attachment, "size", "Unknown"),
-            "saved_to": saved["saved_to"],
-            "bytes_written": saved["bytes_written"],
+            "saved_to": str(file_path),
+            "bytes_written": len(resp.content),
         }
 
     except Exception as e:
-        return {"error": _tool_error(e, "Failed to download attachment")}
+        return {"error": f"Failed to download attachment: {e!s}"}
 
 
 def _parse_html(response: Any) -> Any:
     """Parse an HTML response into a BeautifulSoup tree.
 
-    ``smartschool`` no longer exports ``bs4_html`` (0.12.0 limited the public
-    API), so parse with BeautifulSoup directly.
+    ``smartschool.bs4_html`` is no longer exported (smartschool >= 0.12), so
+    use BeautifulSoup directly.
     """
     from bs4 import BeautifulSoup
 
-    markup: Any
-    if isinstance(response, (str, bytes)):
-        markup = response
-    else:
-        markup = getattr(response, "text", response)
-    return BeautifulSoup(markup, "html.parser")
+    raw_html = getattr(response, "text", response)
+    return BeautifulSoup(raw_html, "html.parser")
 
 
 def _absolutise(session: Smartschool, url: str) -> str:
@@ -2685,7 +1842,7 @@ def _absolutise(session: Smartschool, url: str) -> str:
     return session.create_url(url) if url.startswith("/") else url
 
 
-@_tool
+@mcp.tool()
 def get_homepage_blocks(include_html: bool = False) -> dict[str, Any]:
     """
     Retrieve the "in de kijker" blocks pinned to the Smartschool homepage.
@@ -2744,10 +1901,10 @@ def get_homepage_blocks(include_html: bool = False) -> dict[str, Any]:
         return {"blocks": blocks, "total": len(blocks)}
 
     except Exception as e:
-        return {"error": _tool_error(e, "Failed to retrieve homepage blocks")}
+        return {"error": f"Failed to retrieve homepage blocks: {e!s}"}
 
 
-@_tool
+@mcp.tool()
 def download_homepage_image(
     image_url: str,
     save_path: str | None = None,
@@ -2760,9 +1917,7 @@ def download_homepage_image(
 
     Args:
         image_url: Image URL from get_homepage_blocks.
-        save_path: Optional subfolder of the download folder
-            (~/Downloads/smartschool/, or SMARTSCHOOL_DOWNLOAD_DIR).
-            Paths outside that folder are refused.
+        save_path: Optional directory to save into (default: ~/Downloads/smartschool/).
 
     Returns:
         Dictionary with the saved file path and bytes written.
@@ -2770,7 +1925,6 @@ def download_homepage_image(
     from urllib.parse import unquote
 
     try:
-        download_dir = _download_dir(save_path)
         session = _session()
         base = session.create_url("/")
         if not image_url.startswith(base):
@@ -2779,11 +1933,15 @@ def download_homepage_image(
         resp = session.get(image_url)
         if not resp.ok:
             return {"error": f"Failed to download image: HTTP {resp.status_code}"}
-        if _portal_page_instead_of_file(resp, "image/*"):
-            return {"error": _PORTAL_PAGE_ERROR}
 
         filename = Path(unquote(urlparse(image_url).path)).name or "homepage_image"
-        return _write_download(resp.content, filename, download_dir)
+        file_path = _save_download(resp.content, filename, save_path)
+
+        return {
+            "name": file_path.name,
+            "saved_to": str(file_path),
+            "bytes_written": len(resp.content),
+        }
 
     except Exception as e:
-        return {"error": _tool_error(e, "Failed to download image")}
+        return {"error": f"Failed to download image: {e!s}"}

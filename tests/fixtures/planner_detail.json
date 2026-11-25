@@ -1,0 +1,78 @@
+{
+ "id": "00000000-0000-0000-0000-00000000001f",
+ "platformId": 49,
+ "name": "Leerkracht afwezig: zie opdracht",
+ "period": {
+  "dateTimeFrom": "2026-11-13T10:05:00+01:00",
+  "dateTimeTo": "2026-11-13T10:55:00+01:00",
+  "wholeDay": false,
+  "deadline": false
+ },
+ "plannedElementType": "planned-lessons",
+ "courses": [
+  {
+   "name": "Artistieke expressie"
+  }
+ ],
+ "attachments": [
+  {
+   "id": "00000000-0000-0000-0000-000000000020",
+   "fileName": "Surrealistische Magritte-kameropdracht.png",
+   "fileSize": 2084793,
+   "mimeType": "image/png",
+   "visibility": {
+    "option": "always",
+    "daysAfterEnd": null
+   }
+  }
+ ],
+ "weblinks": [
+  {
+   "id": "w1",
+   "name": "Uitleg op video",
+   "url": "https://www.youtube.com/watch?v=example"
+  }
+ ],
+ "deeplinks": [
+  {
+   "id": "00000000-0000-0000-0000-000000000021",
+   "platformId": 49,
+   "deeplinkId": "00000000-0000-0000-0000-000000000022",
+   "platformDeeplinkId": 49,
+   "type": "documents",
+   "metadata": {
+    "type": "folder",
+    "docId": 359984,
+    "platformId": 49,
+    "courseId": 8608
+   },
+   "icon": "mime_folder",
+   "name": "Artistieke Expressie Bundel 3e jaars ",
+   "visible": true,
+   "url": "https://school.example/deeplink/49/00000000-0000-0000-0000-000000000022"
+  },
+  {
+   "id": "00000000-0000-0000-0000-000000000023",
+   "platformId": 49,
+   "deeplinkId": "00000000-0000-0000-0000-000000000024",
+   "platformDeeplinkId": 49,
+   "type": "documents",
+   "metadata": {
+    "type": "file",
+    "docId": 360484,
+    "fileId": 297308,
+    "platformId": 49,
+    "courseId": 8608,
+    "filename": "Artistieke Expressie.pptx"
+   },
+   "icon": "mime_pres_pptx",
+   "name": "Artistieke Expressie.pptx",
+   "visible": true,
+   "url": "https://school.example/deeplink/49/00000000-0000-0000-0000-000000000024"
+  }
+ ],
+ "partnerWeblinks": [],
+ "courseLinks": [],
+ "plannedToDos": [],
+ "publicInfo": "<p>Leerpad - Hardware vs software</p>\n<p>Afwerken Opdracht 1: Verwerk de theorie met volgende bookwidgets</p>\n<ul>\n<li><strong><a target=\"_blank\" rel=\"noreferrer noopener\">Besturingssystemen, bits &amp; bytes en netwerken</a></strong></li>\n</ul>\n<p>Opdracht 2: Verwerk de theorie met volgende bookwidget</p>\n<ul>\n<li><strong><a target=\"_blank\" rel=\"noreferrer noopener\">Een computer kopen</a></strong></li>\n</ul>\n<p>Opdracht 3: Verwerk de theorie met volgende bookwidget</p>\n<ul>\n<li><strong><a target=\"_blank\" rel=\"noreferrer noopener\">snel en efficiënt zoeken &amp; backup</a></strong></li>\n</ul>\n<p><a href=\"https://example.org/oefening\">Extra oefening</a></p>"
+}

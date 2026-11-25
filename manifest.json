@@ -1,22 +1,54 @@
 {
   "manifest_version": "0.4",
   "name": "smartschool-mcp",
-  "display_name": "Smartschool voor ouders",
-  "version": "1.1.0",
-  "description": "Rooster, punten, taken en berichten van Smartschool voor ouders.",
-  "long_description": "Smartschool voor ouders\n\nLaat Claude meekijken in het Smartschool-portaal van je kind. Vraag bijvoorbeeld:\n\"Wat moet Lisa morgen meenemen?\", \"Welke toetsen komen er aan?\" of \"Wat waren haar laatste punten?\"\n\nWat Claude kan opzoeken:\n- Het lesrooster en de planning: toetsen, huistaken en wat je moet meebrengen\n- Resultaten, met de opmerkingen van de leraar\n- Berichten van de school, met bijlagen\n- Documenten uit de vakmappen, zoals cursussen en werkboeken\n- Meerdere kinderen: kies per vraag wie je bedoelt\n\nClaude leest alleen mee. Er wordt niets verstuurd, beantwoord of gewijzigd in Smartschool.\n\nInstellen\nKies \"Configureren\" en vul in: je school, je gebruikersnaam en wachtwoord, de geboortedatum van je kind voor de extra verificatie van Smartschool, en de naam van je kind. Dit hoef je maar één keer te doen.\n\nJe gegevens\nJe inloggegevens blijven op je eigen computer. Wat Claude opzoekt, verschijnt in je gesprek.\n\nHeb je al eerder een profiel ingesteld? Dan gebruikt de extensie dat bestaande profiel en wordt er geen tweede kopie gemaakt.\n\nWerkt met Claude Desktop.",
+  "display_name": "Smartschool",
+  "icon": "icon.png",
+  "icons": [
+    {
+      "src": "assets/icons/icon-48-light.png",
+      "size": "48x48",
+      "theme": "light"
+    },
+    {
+      "src": "assets/icons/icon-128-light.png",
+      "size": "128x128",
+      "theme": "light"
+    },
+    {
+      "src": "assets/icons/icon-512-light.png",
+      "size": "512x512",
+      "theme": "light"
+    },
+    {
+      "src": "assets/icons/icon-48-dark.png",
+      "size": "48x48",
+      "theme": "dark"
+    },
+    {
+      "src": "assets/icons/icon-128-dark.png",
+      "size": "128x128",
+      "theme": "dark"
+    },
+    {
+      "src": "assets/icons/icon-512-dark.png",
+      "size": "512x512",
+      "theme": "dark"
+    }
+  ],
+  "version": "0.3.0",
+  "description": "Courses, grades, planner, tasks, messages and documents from Smartschool.",
+  "long_description": "Lets Claude read your Smartschool portal: the timetable and planner (tests, assignments, what to bring), results with the teacher's feedback, messages and their attachments, course documents and leerpaden, notes and absences from the pupil file.\n\nClaude only reads. Nothing is sent, answered or changed in Smartschool.\n\nSet up: fill in your school's Smartschool address, your username and password, and the birth date Smartschool asks for (on a parent account, your child's; or a 2FA secret). Your credentials stay on your computer; what Claude looks up appears in your conversation.",
   "author": {
-    "name": "Sonic Rocket",
-    "url": "https://github.com/markminnoye/Smartschool-MCP"
+    "name": "Mauro Druwel",
+    "url": "https://github.com/MauroDruwel"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/markminnoye/Smartschool-MCP"
+    "url": "https://github.com/MauroDruwel/Smartschool-MCP"
   },
-  "homepage": "https://github.com/markminnoye/Smartschool-MCP",
-  "documentation": "https://github.com/markminnoye/Smartschool-MCP/blob/main/README.md",
-  "support": "https://github.com/markminnoye/Smartschool-MCP/issues",
-  "icon": "icon.png",
+  "homepage": "https://github.com/MauroDruwel/Smartschool-MCP",
+  "documentation": "https://github.com/MauroDruwel/Smartschool-MCP/blob/main/README.md",
+  "support": "https://github.com/MauroDruwel/Smartschool-MCP/issues",
   "server": {
     "type": "uv",
     "entry_point": "smartschool_mcp/__main__.py",
@@ -35,141 +67,159 @@
         "SMARTSCHOOL_MAIN_URL": "${user_config.school}",
         "SMARTSCHOOL_USERNAME": "${user_config.username}",
         "SMARTSCHOOL_PASSWORD": "${user_config.password}",
-        "SMARTSCHOOL_MFA": "${user_config.birth_date}",
-        "SMARTSCHOOL_CHILD_NAME": "${user_config.child_name}"
+        "SMARTSCHOOL_MFA": "${user_config.mfa}"
       }
     }
   },
   "tools": [
     {
       "name": "get_courses",
-      "description": "Vakken met leerkrachten"
-    },
-    {
-      "name": "get_course_documents",
-      "description": "Documenten bij een vak"
-    },
-    {
-      "name": "download_course_document",
-      "description": "Download een document bij een vak"
+      "description": "Retrieve all available courses with their teachers."
     },
     {
       "name": "get_results",
-      "description": "Punten"
+      "description": "Retrieve student results/grades with detailed information."
     },
     {
       "name": "get_future_tasks",
-      "description": "Taken die nog moeten"
+      "description": "Retrieve upcoming assignments and tasks."
     },
     {
       "name": "get_messages",
-      "description": "Berichten"
+      "description": "Retrieve messages from the specified mailbox with filtering options."
     },
     {
       "name": "get_schedule",
-      "description": "Rooster van één dag"
+      "description": "Retrieve the lesson schedule for a given day."
     },
     {
       "name": "get_periods",
-      "description": "Periodes van het schooljaar"
+      "description": "Retrieve academic periods/terms for the current school year."
     },
     {
       "name": "get_reports",
-      "description": "Rapporten"
+      "description": "Retrieve available academic report cards."
     },
     {
       "name": "get_planned_elements",
-      "description": "Planner over meerdere dagen"
+      "description": "Retrieve what the Smartschool planner holds for the coming days."
     },
     {
-      "name": "get_planner_attachments",
-      "description": "Bijlagen bij een planneritem"
+      "name": "get_planned_element_details",
+      "description": "Read one planner element in full: description, attachments and links."
     },
     {
-      "name": "download_planner_file",
-      "description": "Download een plannerbijlage"
+      "name": "download_planned_attachment",
+      "description": "Download an attachment of a planner element."
     },
     {
-      "name": "get_student_support_links",
-      "description": "Links voor leerlingenbegeleiding"
+      "name": "get_course_documents",
+      "description": "List the Documenten of a course, one folder at a time."
+    },
+    {
+      "name": "download_course_document",
+      "description": "Download a file from a course's Documenten."
+    },
+    {
+      "name": "get_learning_paths",
+      "description": "List the leerpaden of a course, with the folders they are kept in."
+    },
+    {
+      "name": "get_learning_path",
+      "description": "Show the content of a leerpad: its sections and steps."
     },
     {
       "name": "get_children",
-      "description": "Kinderen op Mijn kinderen"
+      "description": "List the children linked on Mijn kinderen for this (parent) login."
     },
     {
       "name": "switch_child",
-      "description": "Wissel naar een gekoppeld kind"
+      "description": "Switch the session to another child linked on Mijn kinderen."
+    },
+    {
+      "name": "get_student_support_links",
+      "description": "Retrieve student support links and resources."
+    },
+    {
+      "name": "get_student_notes",
+      "description": "Retrieve student file notes (\"dossierlijnen\") from the pupil-tracking system (Leerlingvolgsysteem / LVS), newest first."
+    },
+    {
+      "name": "get_student_absences",
+      "description": "Retrieve recorded absences from the pupil-tracking system (Leerlingvolgsysteem / LVS), newest first."
     },
     {
       "name": "get_attachments",
-      "description": "Bijlagen bij een bericht"
+      "description": "List all attachments for a specific message."
     },
     {
       "name": "download_attachment",
-      "description": "Download een bijlage"
+      "description": "Download a specific attachment from a message."
     },
     {
       "name": "get_homepage_blocks",
-      "description": "Blokken in de kijker op de startpagina"
+      "description": "Retrieve the \"in de kijker\" blocks pinned to the Smartschool homepage."
     },
     {
       "name": "download_homepage_image",
-      "description": "Download een foto uit een startpaginablok"
+      "description": "Download an image embedded in a homepage block."
     }
   ],
   "prompts": [
     {
       "name": "ochtendbriefing",
-      "description": "Korte Nederlandse ochtendbriefing (standup) voor één kind",
-      "arguments": ["child"],
-      "text": "Je maakt een korte Nederlandse ochtendbriefing (daily standup) voor één kind via de Smartschool-tools. Alleen lezen: stuur, beantwoord of verwijder niets in Smartschool. Log nooit zelf in op Smartschool en open geen Smartschool-link in een browser; werkt iets niet, meld dat dan kort. Stel geen vragen; maak redelijke keuzes. Verzin niets; markeer afgeleide info met (vermoedelijk). Neem nooit wachtwoorden uit berichten over.\n\nKind: als ${arguments.child} is ingevuld, gebruik die naam; anders de naam uit Configure. Roep get_children aan en switch_child naar dat kind als nodig. Blijf op dat kind.\n\nData ophalen:\n1. get_schedule(date_offset=0, includes=courses,locations) — vandaag.\n2. get_planned_elements van vandaag t/m +7 dagen (includes=courses,locations) — hoofdbron voor taken en toetsen. Andere includes dan courses en locations leveren niets op en kunnen een fout geven. Deze lijsten bevatten nooit leerstof of bijlagen: description is er altijd leeg en upload_folders een lege lijst.\n3. Roep voor elke toets, taak en meebrengen-item in de komende 7 dagen get_planner_attachments(element_id, from_date, to_date) aan, altijd voor vandaag, morgen en overmorgen. Dat geeft de leerstof (description, bv. theorie en oefeningen met paginanummers) en de bijlagen (upload_folders[].files, bv. een toetsenwijzer).\n4. Bijlagen van toetsen binnen 3 dagen: download met download_planner_file en vat samen in 1 of 2 zinnen. Bij andere bijlagen noem je enkel de bestandsnaam.\n5. get_future_tasks als aanvulling (mag leeg zijn).\n6. get_messages (inbox, bescheiden limiet, bodies aan) — focus op ~3 dagen of ongelezen.\n7. get_results(limit=8): een resultaat met published_date van vandaag of gisteren is nieuw. Neem de feedback van de leerkracht kort mee. Klasgemiddelde en mediaan zijn meestal niet beschikbaar: vermeld ze niet. Bij een fout één zin in Varia.\n8. get_reports: geeft alleen titel en datum, nooit de inhoud. Een rapport dat je niet eerder zag meld je in Varia, zonder inhoud.\n9. get_homepage_blocks alleen op maandag.\n\nGeen schooldag en niets urgents? Maak dan geen briefing.\n\nOpmaak (Nederlands, geen nummering, lege onderdelen weglaten, max. ongeveer één telefoonscherm):\n- Bovenaan: datum + de allerbelangrijkste zaak van vanochtend.\n- Vandaag: meenemen, staking/vrije dag, toets vandaag, acties die vandaag geld of materiaal vragen.\n- Vanavond te doen: studeren/taken met deadline morgen of overmorgen; toetsen als **Toets [vak] – [naam/onderwerp]**, met de leerstof letterlijk uit description. Pas als description én bijlagen leeg zijn: het kind moet nagaan waar de leerstof staat.\n- Rest van de week: stakingen/vrije dagen in vet, toetsen met datum en de leerstof in een halve zin, meenemen, oudercontact.\n- Varia: mededelingen, betalingen, strooibriefjes; nieuwe punten (met korte feedback) en een nieuw rapport alleen als nieuw.\n\nGeen lesuren of lokalen tenzij nodig. Lever alleen in de chat (geen mail tenzij de gebruiker dat apart vraagt)."
+      "description": "Korte Nederlandse ochtendbriefing: vandaag, vanavond en de rest van de week",
+      "arguments": [],
+      "text": "Je maakt een korte Nederlandse ochtendbriefing (daily standup) voor de leerling van deze Smartschool-login, met de Smartschool-tools. Alleen lezen: stuur, beantwoord of verwijder niets in Smartschool. Log nooit zelf in op Smartschool en open geen Smartschool-link in een browser; werkt iets niet, meld dat dan kort. Stel geen vragen; maak redelijke keuzes. Verzin niets; markeer afgeleide info met (vermoedelijk). Neem nooit wachtwoorden uit berichten over.\n\nData ophalen:\n1. get_schedule(date_offset=0) — vandaag.\n2. get_planned_elements(days_ahead=7, include_details=True) — hoofdbron voor toetsen (is_exam), taken, vrije dagen en activiteiten, met de leerstof (description) en de bijlagen van elk element.\n3. Bijlagen van toetsen binnen 3 dagen: download ze met download_planned_attachment en vat ze samen in 1 of 2 zinnen. Bij andere bijlagen noem je enkel de bestandsnaam.\n4. get_future_tasks als aanvulling (mag leeg zijn).\n5. get_messages(include_body=True) met een bescheiden limit — focus op de laatste ~3 dagen of ongelezen.\n6. get_results(limit=8, include_details=False): een resultaat met published_date van vandaag of gisteren is nieuw. Neem de feedback van de leerkracht kort mee. Bij een fout één zin in Varia.\n7. get_reports: geeft alleen titel en datum, nooit de inhoud. Een nieuw rapport meld je in Varia, zonder inhoud.\n8. get_homepage_blocks alleen op maandag.\n\nGeen schooldag en niets urgents? Maak dan geen briefing.\n\nOpmaak (Nederlands, geen nummering, max. ongeveer één telefoonscherm):\n- Bovenaan: datum + de allerbelangrijkste zaak van vanochtend.\n- Vandaag: meenemen, staking/vrije dag, toets vandaag, acties die vandaag geld of materiaal vragen.\n- Vanavond te doen: studeren/taken met deadline morgen of overmorgen; toetsen als **Toets [vak] – [naam/onderwerp]**, met de leerstof letterlijk uit description. Pas als description én bijlagen leeg zijn: nagaan waar de leerstof staat.\n- Rest van de week: stakingen/vrije dagen in vet, toetsen met datum en de leerstof in een halve zin, meenemen, oudercontact.\n- Varia: mededelingen, betalingen, strooibriefjes; nieuwe punten (met korte feedback) en een nieuw rapport.\n\nEen onderdeel zonder inhoud laat je volledig weg: geen kop en geen regel als \"geen taken\" of \"niets gepland\".\n\nGeen lesuren of lokalen tenzij nodig. Lever alleen in de chat."
     },
     {
       "name": "weekbriefing",
       "description": "Korte Nederlandse weekbriefing voor de komende schoolweek",
-      "arguments": ["child"],
-      "text": "Je maakt een korte Nederlandse weekbriefing voor één kind via de Smartschool-tools. Alleen lezen: stuur, beantwoord of verwijder niets in Smartschool. Log nooit zelf in op Smartschool en open geen Smartschool-link in een browser; werkt iets niet, meld dat dan kort. Stel geen vragen; maak redelijke keuzes. Verzin niets; markeer afgeleide info met (vermoedelijk). Neem nooit wachtwoorden uit berichten over.\n\nKind: als ${arguments.child} is ingevuld, gebruik die naam; anders de naam uit Configure. Roep get_children aan en switch_child naar dat kind als nodig. Blijf op dat kind.\n\nData ophalen:\n1. get_planned_elements van vandaag t/m +7 dagen (includes=courses,locations) — hoofdbron. Andere includes dan courses en locations leveren niets op en kunnen een fout geven. Deze lijsten bevatten nooit leerstof of bijlagen: description is er altijd leeg en upload_folders een lege lijst.\n2. Roep voor elke toets, taak en meebrengen-item get_planner_attachments(element_id, from_date, to_date) aan. Dat geeft de leerstof (description) en de bijlagen (upload_folders[].files, bv. een toetsenwijzer). Download bijlagen niet; noem enkel de bestandsnaam.\n3. get_schedule voor vandaag (en morgen) als context.\n4. get_future_tasks als aanvulling.\n5. get_messages — berichten die deze week actie vragen.\n6. get_results(limit=8): resultaten met een published_date van de voorbije 7 dagen, met de feedback van de leerkracht kort erbij. Klasgemiddelde en mediaan zijn meestal niet beschikbaar: vermeld ze niet.\n7. get_reports: geeft alleen titel en datum, nooit de inhoud. Meld enkel een rapport dat je niet eerder zag.\n8. get_homepage_blocks als relevant.\n\nDoel: overzicht van de komende schoolweek, geen ochtend-standup.\n\nOpmaak (Nederlands, geen nummering, lege onderdelen weglaten):\n- Bovenaan: weekbereik + één zin met het zwaartepunt.\n- Deze week: toetsen en deadlines per dag (vak + naam/onderwerp + datum + leerstof letterlijk uit description), chronologisch. Pas als description én bijlagen leeg zijn: het kind moet nagaan waar de leerstof staat.\n- Meebrengen & acties: kledij, materiaal, geld, strooibriefjes, inschrijvingen, oudercontact — met de dag.\n- Aandacht / berichten: schoolberichten die deze week nog spelen.\n- Punten: alleen nieuwe of opvallende resultaten, met korte feedback, en een nieuw rapport zonder inhoud.\n\nVet voor stakingen, vrije dagen en toetsen. Geen complete lesurenlijst. Lever alleen in de chat (geen mail tenzij de gebruiker dat apart vraagt)."
+      "arguments": [],
+      "text": "Je maakt een korte Nederlandse weekbriefing voor de leerling van deze Smartschool-login, met de Smartschool-tools. Alleen lezen: stuur, beantwoord of verwijder niets in Smartschool. Log nooit zelf in op Smartschool en open geen Smartschool-link in een browser; werkt iets niet, meld dat dan kort. Stel geen vragen; maak redelijke keuzes. Verzin niets; markeer afgeleide info met (vermoedelijk). Neem nooit wachtwoorden uit berichten over.\n\nData ophalen:\n1. get_planned_elements(days_ahead=7, include_details=True) — hoofdbron, met de leerstof (description) en de bijlagen van elk element. Download bijlagen niet; noem enkel de bestandsnaam.\n2. get_schedule(date_offset=0) en get_schedule(date_offset=1) als context.\n3. get_future_tasks als aanvulling.\n4. get_messages(include_body=True) — berichten die deze week actie vragen.\n5. get_results(limit=8, include_details=False): resultaten met een published_date van de voorbije 7 dagen, met de feedback van de leerkracht kort erbij.\n6. get_reports: geeft alleen titel en datum, nooit de inhoud. Meld enkel een nieuw rapport.\n7. get_homepage_blocks als relevant.\n\nDoel: overzicht van de komende schoolweek, geen ochtend-standup.\n\nOpmaak (Nederlands, geen nummering):\n- Bovenaan: weekbereik + één zin met het zwaartepunt.\n- Deze week: toetsen en deadlines per dag (vak + naam/onderwerp + datum + leerstof letterlijk uit description), chronologisch. Pas als description én bijlagen leeg zijn: nagaan waar de leerstof staat.\n- Meebrengen & acties: kledij, materiaal, geld, strooibriefjes, inschrijvingen, oudercontact — met de dag.\n- Aandacht / berichten: schoolberichten die deze week nog spelen.\n- Punten: alleen nieuwe of opvallende resultaten, met korte feedback, en een nieuw rapport zonder inhoud.\n\nEen onderdeel zonder inhoud laat je volledig weg: geen kop en geen regel als \"geen taken\" of \"niets gepland\".\n\nVet voor stakingen, vrije dagen en toetsen. Geen complete lesurenlijst. Lever alleen in de chat."
     }
   ],
   "user_config": {
     "school": {
       "type": "string",
-      "title": "School",
-      "description": "Je school, als subdomein (het deel vóór .smartschool.be).",
-      "required": false
+      "title": "School address",
+      "description": "Your school's Smartschool address, e.g. myschool.smartschool.be",
+      "required": true
     },
     "username": {
       "type": "string",
-      "title": "Gebruikersnaam",
-      "description": "Je Smartschool-gebruikersnaam.",
-      "required": false
+      "title": "Username",
+      "description": "Your Smartschool username.",
+      "required": true
     },
     "password": {
       "type": "string",
-      "title": "Wachtwoord",
-      "description": "Je Smartschool-wachtwoord. Eenmalig bewaard, niet in het chatvenster.",
-      "required": false,
+      "title": "Password",
+      "description": "Your Smartschool password.",
+      "required": true,
       "sensitive": true
     },
-    "birth_date": {
+    "mfa": {
       "type": "string",
-      "title": "Geboortedatum van je kind (jjjj-mm-dd)",
-      "description": "De geboortedatum van je kind, voor de extra verificatie van Smartschool.",
-      "required": false,
-      "sensitive": true
-    },
-    "child_name": {
-      "type": "string",
-      "title": "Naam van je kind",
-      "description": "De naam van je kind, zodat Claude weet wie je bedoelt.",
-      "required": false
+      "title": "Birth date (dd-mm-yyyy)",
+      "description": "The birth date Smartschool asks for after the password, e.g. 12-11-2014; on a parent account, your child's birth date. With 2FA, enter the TOTP secret instead.",
+      "required": true
     }
   },
-  "keywords": ["smartschool", "school", "planner", "cijfers"],
+  "keywords": [
+    "smartschool",
+    "school",
+    "grades",
+    "planner",
+    "education"
+  ],
   "license": "MIT",
   "compatibility": {
-    "platforms": ["darwin", "win32", "linux"],
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
     "runtimes": {
       "python": ">=3.10"
     }

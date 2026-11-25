@@ -1,8 +1,8 @@
 # Gap: website vs `smartschool` vs MCP
 
-Observation only. No MCP tool changes in this round. Upstream PRs wait until every **visible** nav module is `catalogued` from a live crawl ([README.md](README.md)). The list at the bottom is a **draft priority**, not work to open now.
+Observation only. The list at the bottom is a **draft priority** for the `smartschool` library, not planned MCP work.
 
-Sources: HAR `docs/portal-api/raw/dering.smartschool.be.har` (gitignored), overwritten 2026-09-17. First capture: `depass.smartschool.be` + `dering.smartschool.be`. Second capture: De Ring–only Intradesk / Zoeken / Vakken course folders. Third capture: De Ring Meldingen (`/Profile/Notify`). Library: `svaningelgem/smartschool` 0.13.0 (`bd98fd07`).
+Sources: HAR `docs/portal-api/raw/school-b.smartschool.be.har` (gitignored), overwritten 2026-09-17. First capture: `school-a.smartschool.be` + `school-b.smartschool.be`. Second capture: school B–only Intradesk / Zoeken / Vakken course folders. Third capture: school B Meldingen (`/Profile/Notify`). Library: `svaningelgem/smartschool` 0.13.0 (`bd98fd07`).
 
 ## Same path, different query
 
@@ -36,8 +36,8 @@ Planner shell and writes (beyond the planned-elements GETs):
 | `POST /planner/api/v1/user-settings/save/join-planned-elements` | UI setting |
 | `POST /planner/api/v1/user-settings/save/todo` | UI setting |
 | `POST /planner/api/v1/user-settings/save/view` | UI setting |
-| `POST /planner/api/v1/ics/profile` | ICS profile save (De Ring) |
-| `GET /planner/api/v1/ics/profile/own` | ICS profile (De Ring) |
+| `POST /planner/api/v1/ics/profile` | ICS profile save (school B) |
+| `GET /planner/api/v1/ics/profile/own` | ICS profile (school B) |
 | `GET /labels/api/v1/labels/platform` | Planner shell |
 | `GET /labels/api/v1/labels/user` | Planner shell |
 | `GET /labels/api/v1/groups/` | Planner shell |
@@ -45,7 +45,7 @@ Planner shell and writes (beyond the planned-elements GETs):
 | `GET /group-filters/api/v1/properties/{propertyId}/quick-filter` | Same ids |
 | `GET /timetable/api/v1/` | Timetable SPA bootstrap; not Agenda XML |
 
-Start / studentcard / LVS / other nav (all unmapped):
+Start / studentcard / LVS / other nav (unmapped unless noted):
 
 | Path | Notes |
 |------|--------|
@@ -53,10 +53,10 @@ Start / studentcard / LVS / other nav (all unmapped):
 | `POST /Homepage/Setting/getConfig` | Start shell |
 | `POST /Homepage/Pushwizard/getwizardconfig` | Push wizard |
 | `POST /Homepage/Pushwizard/saveactivation` | Push wizard |
-| `POST /Studentcard/Student/getStudents` | Child list on Mijn kinderen (`get_children`; XHR header required, topnav gotourl fills accountID 0) |
-| `GET /Studentcard/Chain/gotourl/accountID/{accountId}` | Child switch HTML (`switch_child`) |
+| `POST /Studentcard/Student/getStudents` | Child list on Mijn kinderen (XHR header required; the current child can have `accountID` 0, the topnav `gotourl` links carry the real ids) |
+| `GET /Studentcard/Chain/gotourl/accountID/{accountId}` | Child switch HTML |
 | `POST /Studentcard/*` (config, LVS, messages, presence, evaluations, reports) | Child overview widgets |
-| `POST /?module=LVS&file=dispatcher` | Several `lvs` / `lvs_groups` / `lvs_pupils` actions |
+| `POST /?module=LVS&file=dispatcher` | Several `lvs` / `lvs_groups` / `lvs_pupils` actions; the library wraps `lvs_pupils/getUserData` and `getItemParams` (`StudentNotes`, `StudentAbsences`, `StudentNoteDetails`) |
 | `GET`/`POST /?module=LVS&file=jqDispatcher_*` | Settings and group tree helpers |
 | `POST /?module=LVS&file=treeBuilder` | Group tree |
 | `POST /LVS/Config/getConfig` | LVS config |
@@ -67,10 +67,10 @@ Start / studentcard / LVS / other nav (all unmapped):
 | `GET /forms/api/v1/…` | Participant forms + rounds/entries/answers |
 | `GET /photos/api/v1/albums/` / `configuration/` / `favourites/` | Photos |
 | `POST /goal/selector/api/v1/leerplannen/results/{date}` | Goals from a results screen |
-| `POST /?module=News&file=dispatcher` | `overview/getGroupsXML`, `overview/loadMsg` (De Ring) |
-| `POST /?module=Wiki&file=dispatcher` | `wiki/get wikis` (De Ring) |
-| `GET /links/api/v1/` / `configuration` | Links (De Ring) |
-| `GET /topnav/getProfiles` / `/topnav/go-menu` | Profile shell (De Ring) |
+| `POST /?module=News&file=dispatcher` | `overview/getGroupsXML`, `overview/loadMsg` (school B) |
+| `POST /?module=Wiki&file=dispatcher` | `wiki/get wikis` (school B) |
+| `GET /links/api/v1/` / `configuration` | Links (school B) |
+| `GET /topnav/getProfiles` / `/topnav/go-menu` | Profile shell (school B) |
 | `GET /results/api/v1/components/` | Results UI |
 | `GET /results/api/v1/feedback/` | Results UI |
 | `POST /?module=Messages&file=dispatcher` extra actions | `postboxes/calculate_postbox_counters`, `loadtooltip`, `smartbox list`, `quickactions/reloadunreadmessages`, `maintenance/save postbox` |
@@ -78,7 +78,7 @@ Start / studentcard / LVS / other nav (all unmapped):
 | `GET /Publishers/Index/isbaoplatform` | Planner/shell |
 | `GET /smsc/locales/{locale}/{bundle}.rev-{hash}.json` | i18n, not student data |
 | `GET /smsc/locales/{locale}/{bundle}.json` | i18n without rev-hash |
-| `GET /intradesk` | Intradesk HTML shell (De Ring) |
+| `GET /intradesk` | Intradesk HTML shell (school B) |
 | `GET /intradesk/api/v1/recent` | Recent files |
 | `GET /intradesk/api/v1/{platformId}/directory-listing/forTreeOnlyFolders` | Root listing without folderId |
 | `POST /intradesk/api/v1/{platformId}/files/{fileId}/mark-as-favourite` | Empty JSON body |
@@ -93,14 +93,14 @@ Start / studentcard / LVS / other nav (all unmapped):
 | `GET /planner/api/v1/planned-elements/search/course-links/filters` | Course-link search filters |
 | `GET /?module=News&file=coursenews` | Course news HTML |
 | `GET /?module=Exercises&file=index` / `Cooperate` / `Forum&file=showforum` / `Wiki&file=index` | Other Vakken course HTML |
-| `GET /Profile/Notify` | Meldingen HTML shell (De Ring) |
+| `GET /Profile/Notify` | Meldingen HTML shell (school B) |
 | `POST /Profile/Notify/getActionSettings` | Empty body |
 | `POST /Profile/Notify/getEventSettings` | Empty body |
 | `POST /Profile/Notify/getMobileDevices` | Empty body |
 | `POST /Profile/Notify/saveShowNotifyAlerts` | Form key `value` |
 | `POST /Profile/Notify/saveSetting` | Form keys `name`, `type`, `value`, optional `extra[startTime]` / `extra[endTime]` |
 | `POST /Profile/Notify/saveAllowPushNotifications` | Form keys `allowPushNotifications`, `applicationID` |
-| `GET /?module=Profile` | Profile HTML shell (De Ring page) |
+| `GET /?module=Profile` | Profile HTML shell (school B page) |
 | `GET /?module=Messages` (`msgID`) | HTML message view from the Notify click-through |
 
 This HAR’s **filtered** calls also requested `planned-generics`, `planned-lesson-free-days`, `planned-meetings`. Library docs now list those types; the model is still a generic `PlannedElement`.
@@ -111,39 +111,39 @@ These are still called by the library. They did **not** appear in this live HAR.
 
 | Path | Library | Deprecation candidate? |
 |------|---------|------------------------|
-| `POST /?module=Agenda&file=dispatcher` (`get lessons` / `get hours` / `get moment info`) | `SmartschoolLessons`, `SmartschoolHours`, `SmartschoolMomentInfos` | **Yes** for timetable. Schoolagenda was read-only from 2022 and removed 31 Aug 2025. On De Pass the dispatcher returns no lessons while Planner is full. Still absent from this broader HAR. |
+| `POST /?module=Agenda&file=dispatcher` (`get lessons` / `get hours` / `get moment info`) | `SmartschoolLessons`, `SmartschoolHours`, `SmartschoolMomentInfos` | **Yes** for timetable. Schoolagenda was read-only from 2022 and removed 31 Aug 2025. On school A the dispatcher returns no lessons while Planner is full. Still absent from this broader HAR. |
 | `POST /Agenda/Futuretasks/getFuturetasks` | `FutureTasks` | Likely. Sidebar data is Planner `types=…`. |
 | `GET /mydoc/api/v1/…` and upload helpers | `MyDocsFolder` / `MyDocsFile` | Unknown — personal mydocs tab still not opened (Intradesk and Meldingen were) |
 | `GET /intradesk/api/v1/{platformId}/files/{fileId}/download` | `IntradeskFile` | Unknown — listing/favourite were opened; download was not |
-| `GET /Documents/Index/Index/courseID/{courseId}/ssID/{platformId}` | `FolderItem` | **Seen live** on De Ring (plus `parentID/{folderId}` subfolder) |
+| `GET /Documents/Index/Index/courseID/{courseId}/ssID/{platformId}` | `FolderItem` | **Seen live** on school B (plus `parentID/{folderId}` subfolder) |
 | Messages compose / searchUsers / archive / attachment download / mark unread / label / trash | `MessageComposerForm` and related | Unknown — inbox list/detail were opened; compose was not |
 | `POST /login` / `POST /account-verification` / `2fa/api/v1/…` | `Smartschool` | Trusted-browser switch (2026-09-22 HAR): OTP 302 to relative `/Studentcard`, no login POST. New-device sessions may still see `GET /account-verification`. |
 
 ## MCP column (info only)
 
-Do not invent extra MCP tools from the leftover catalog (calendars, labels, …). Mijn kinderen list/switch is the exception: parent/co-accounts need `get_children` + `switch_child` or Planner stays on one child.
+Do not invent extra MCP tools from the leftover catalog (calendars, labels, …).
 
-| MCP tool | Library | Website timetable? |
-|----------|---------|--------------------|
-| `get_schedule` | calendar JSON, same query as `PlannedElements` (one day, no `types`) | **Yes** — same calendar GET as the website. `id` is on every fixture. `description` and `uploadFolders` are **not** in the fixtures |
-| `get_future_tasks` | `FutureTasks` (Agenda JSON), then Planner `element_types=planned-assignments` when that list is empty | Legacy first; Planner assignments on De Pass |
-| `get_planned_elements` | calendar JSON, same query as `PlannedElements` (optional `types` / `includes`) | **Yes** — default matches the calendar |
-| `get_planner_attachments` / `download_planner_file` | same calendar GET with `includes=icon,courses,locations,upload-folders,labels`; assignment detail GET when an assignment row has neither description nor folders, and again for `include_raw` | Include list matches the website. Assignment detail can carry `attachments[]` (`id`, `fileName`, `fileSize`, `mimeType`, `visibility`) and a separate `uploadFolder`, with no file URL. Download follows a same-host URL from the payload when one is present. Otherwise it GETs unverified attachment routes (`/planner/api/v1/planned-assignments/{platformId}/{assignmentId}/attachments/{attachmentId}` with and without `/download`, plus planned-elements variants) and then older `/files/` guesses, same host, GET only, stop at the first file. `include_raw=true` returns key names, URL-like fields, and safe attachment values (`id`, `mimeType`, `visibility`; not file names). `live_verified` stays false |
-| `get_course_documents` / `download_course_document` | `TopNavCourses` + `FolderItem` | Documenten HTML listing and `/Documents/Download/Index/...` (library fixtures; live on De Ring). Not planner upload folders |
+| MCP tool | Library / route | Website match |
+|----------|-----------------|---------------|
+| `get_schedule` | Agenda lessons, then the planner calendar GET when the agenda is empty | Planner lessons as on the website calendar |
+| `get_future_tasks` | `FutureTasks` (Agenda JSON), then planner `planned-assignments` / `planned-to-dos` when that list is empty | Legacy first; planner on schools that moved |
+| `get_planned_elements` | Planner calendar GET with `includes` | **Yes**: same call as the calendar |
+| `get_planned_element_details` / `download_planned_attachment` | `GET /planner/api/v1/{elementType}/{platformId}/{elementId}` | Element detail as on the website |
+| `get_course_documents` / `download_course_document` | `TopNavCourses` + `FolderItem` | Documenten HTML listing and `/Documents/Download/Index/...` |
+| `get_learning_paths` / `get_learning_path` | `/Lpaths/...` HTML | Leerpaden overview; progress is read, not changed |
 | `get_courses` | `Courses` (`/results/api/v1/courses/`) | Live results course list; not the Planner `course-list` call |
 | `get_results` / `get_periods` / `get_reports` | Results APIs | Live; library evaluations query is a subset of the UI filters |
+| `get_student_notes` / `get_student_absences` | `StudentNotes`, `StudentNoteDetails`, `StudentAbsences` (LVS dispatcher) | Pupil file |
 | `get_messages` / `get_attachments` / `download_attachment` | Messages XML | Inbox list/detail live; attachments/download not in this HAR |
 | `get_student_support_links` | `StudentSupportLinks` | Live |
 | `get_homepage_blocks` / `download_homepage_image` | none (HTML `GET /`) | Live Start page; homepage dispatcher XML is extra and unmapped |
-| `get_children` | none (`POST /Studentcard/Student/getStudents`) | Mijn kinderen list |
-| `switch_child` | none (`GET /Studentcard/Chain/gotourl/accountID/{accountId}`) | Mijn kinderen switch |
-| *(none)* | — | Calendars, labels, group-filters, timetable SPA, studentcard widgets, LVS, forms, photos, contact-moments, Intradesk, Zoeken, Uploadzone, video-call, Meldingen (`/Profile/Notify`). Pinned elements have no library class in 0.13.0 and no extra MCP tool. |
+| *(none)* | — | Mijn kinderen (list/switch), calendars, labels, group-filters, timetable SPA, studentcard widgets, forms, photos, contact-moments, Intradesk, Zoeken, Uploadzone, video-call, Meldingen (`/Profile/Notify`). Pinned elements have no library class in 0.13.0. |
 
 When changing planner tools: mirror the website query (`from`, `to`, optional `types`, optional `includes`) and pass through `plannedElementType` / `period` rather than reshaping into Agenda names.
 
 ## Draft upstream list
 
-This MCP pins `smartschool==0.13.0` and keeps the raw calendar GET. Remaining library gaps:
+Remaining gaps in `smartschool` 0.13.0:
 
 1. `PlannedElements` default still filters to assignments and to-dos (MCP omits `types` itself).
 2. ~~Wire docs for types seen on the wire~~ (0.13.0 docstrings cover more types).
@@ -152,7 +152,6 @@ This MCP pins `smartschool==0.13.0` and keeps the raw calendar GET. Remaining li
 5. **Calendars, labels, group-filters** as thin clients of the catalogued paths (needed for a faithful Planner shell; lower than the roster GET).
 6. **Results list query** — optional `componentIds`, `courseIds`, `periodIds`; reports trailing slash.
 7. ~~Mark Agenda XML + `FutureTasks` as deprecated~~ (library docs in 0.13.0).
-8. ~~Bump this repo’s `smartschool` pin, then change MCP tools~~ (`==0.13.0`; calendar tools stay on the raw GET).
-9. `includes` on the list call (upstream issue #237) and `uploadFolder` on the model.
+8. `includes` on the list call (upstream issue #237) and `uploadFolder` on the model.
 
 Not in scope for upstream: partner OAuth API, SOAP `/Webservices/V3`, wrapping `getToken`, committing fixtures with student JSON.

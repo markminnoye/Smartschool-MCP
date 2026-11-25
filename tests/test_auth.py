@@ -10,7 +10,7 @@ import pytest
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
-from smartschool import AppCredentials
+from smartschool import AppCredentials, SmartSchoolAuthenticationError
 from starlette.responses import Response
 
 from smartschool_mcp.auth import (
@@ -25,6 +25,7 @@ from smartschool_mcp.auth import (
     get_credentials,
     login_routes,
 )
+from smartschool_mcp.guard import memory_lockout_message
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -639,13 +640,12 @@ class TestLoginHandlers:
                 "school": "school.smartschool.be",
                 "username": "john",
                 "password": "wrong",
-                "mfa": "",
+                "mfa": "2000-01-01",
             }
         )
 
         with patch(
-            "smartschool_mcp.auth.MemoryGuardedSession",
-            side_effect=RuntimeError("bad"),
+            "smartschool_mcp.auth.MemoryGuardedSession", side_effect=RuntimeError("bad")
         ):
             response = await _handle_login_post(request, provider)
 
@@ -685,98 +685,88 @@ class TestLoginHandlers:
         assert "code=code-123" in response.headers["location"]
         assert "state=state123" in response.headers["location"]
 
-    @staticmethod
-    def _login_request(password: str = "secret") -> MagicMock:
+    @pytest.mark.asyncio
+    async def test_handle_login_post_refuses_a_locked_out_user(self) -> None:
+        """After a rejected password the public form sends nothing for a while."""
+        provider = MagicMock()
+        provider.get_pending_auth.return_value = object()
         request = MagicMock()
         request.form = AsyncMock(
             return_value={
                 "pending": "abc",
                 "school": "school.smartschool.be",
                 "username": "john",
-                "password": password,
-                "mfa": "2000-01-01",
+                "password": "guess",
+                "mfa": "",
             }
         )
-        return request
-
-    @pytest.mark.asyncio
-    async def test_handle_login_post_stops_during_memory_lockout(self) -> None:
-        provider = MagicMock()
-        provider.get_pending_auth.return_value = object()
 
         with (
             patch("smartschool_mcp.auth.memory_lockout_active", return_value=True),
             patch("smartschool_mcp.auth.MemoryGuardedSession") as mock_session,
         ):
-            response = await _handle_login_post(self._login_request(), provider)
+            response = await _handle_login_post(request, provider)
 
         mock_session.assert_not_called()
-        body = response.body.decode()
+        provider.complete_authorization.assert_not_called()
         assert response.status_code == 200
-        assert "15 minuten" in body
-        assert ".cache" not in body
+        assert "minutes" in response.body.decode()
 
     @pytest.mark.asyncio
-    async def test_handle_login_post_shows_lockout_from_guard(self) -> None:
+    async def test_handle_login_post_shows_the_lockout_after_a_rejection(
+        self,
+    ) -> None:
         provider = MagicMock()
         provider.get_pending_auth.return_value = object()
+        request = MagicMock()
+        request.form = AsyncMock(
+            return_value={
+                "pending": "abc",
+                "school": "school.smartschool.be",
+                "username": "john",
+                "password": "wrong",
+                "mfa": "2000-01-01",
+            }
+        )
+        rejected = MagicMock()
+        rejected.get.side_effect = SmartSchoolAuthenticationError(
+            memory_lockout_message()
+        )
 
         with (
+            patch("smartschool_mcp.auth.MemoryGuardedSession", return_value=rejected),
+            # Not locked out before the attempt; the guard locked it after.
             patch(
                 "smartschool_mcp.auth.memory_lockout_active",
                 side_effect=[False, True],
             ),
-            patch(
-                "smartschool_mcp.auth.MemoryGuardedSession",
-                side_effect=RuntimeError("LOGIN FAILED"),
-            ),
         ):
-            response = await _handle_login_post(self._login_request("wrong"), provider)
+            response = await _handle_login_post(request, provider)
 
-        body = response.body.decode()
+        provider.complete_authorization.assert_not_called()
         assert response.status_code == 200
-        assert "15 minuten" in body
-        assert "Login failed — check" not in body
-
-    @pytest.mark.asyncio
-    async def test_handle_login_post_network_error_is_not_a_bad_password(
-        self,
-    ) -> None:
-        import requests
-
-        provider = MagicMock()
-        provider.get_pending_auth.return_value = object()
-
-        with patch(
-            "smartschool_mcp.auth.MemoryGuardedSession",
-            side_effect=requests.ConnectionError("down"),
-        ):
-            response = await _handle_login_post(self._login_request(), provider)
-
-        body = response.body.decode()
-        assert "Could not reach Smartschool" in body
-        assert "check your school URL" not in body
-
-
-def test_credential_store_outlives_an_idle_hour() -> None:
-    import smartschool_mcp.auth as auth
-
-    assert auth._credential_store.ttl == auth._REFRESH_TOKEN_TTL
+        assert "minutes" in response.body.decode()
 
 
 @pytest.mark.asyncio
-async def test_revoking_refresh_token_forgets_the_password() -> None:
-    import smartschool_mcp.auth as auth
+async def test_handle_login_post_refuses_an_unusable_birth_date() -> None:
+    """A typo in the birth date must not cost a Smartschool login attempt."""
+    provider = MagicMock()
+    provider.get_pending_auth.return_value = object()
+    request = MagicMock()
+    request.form = AsyncMock(
+        return_value={
+            "pending": "abc",
+            "school": "school.smartschool.be",
+            "username": "john",
+            "password": "secret",
+            "mfa": "31/02/2012",
+        }
+    )
 
-    provider = auth.SmartschoolOAuthProvider("https://mcp.example.com")
-    creds = AppCredentials(
-        username="john", password="pw", main_url="school.smartschool.be", mfa=""
-    )
-    refresh = auth.SmartschoolRefreshToken(
-        token="r1", client_id="c", scopes=[], expires_at=None, cred_key="k-revoke"
-    )
-    provider._refresh_tokens["r1"] = refresh
-    with patch.dict(auth._credential_store, {"k-revoke": creds}):
-        await provider.revoke_token(refresh)
-        assert "k-revoke" not in auth._credential_store
-    assert "r1" not in provider._refresh_tokens
+    with patch("smartschool_mcp.auth.MemoryGuardedSession") as mock_session:
+        response = await _handle_login_post(request, provider)
+
+    mock_session.assert_not_called()
+    assert response.status_code == 200
+    assert "dd-mm-yyyy" in response.body.decode()

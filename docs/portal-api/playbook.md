@@ -1,6 +1,6 @@
 # Capture playbook
 
-Repeatable steps to extend [`catalog.yml`](catalog.yml) from a logged-in Chrome session. One school, one role per crawl. This seed used a **parent/co-account** on De Pass (`depass.smartschool.be`). Teacher- and admin-only routes will be missing.
+Repeatable steps to extend [`catalog.yml`](catalog.yml) from a logged-in Chrome session. One school, one role per crawl. This seed used a **parent/co-account** on school A (`school-a.smartschool.be`). Teacher- and admin-only routes will be missing.
 
 ## Setup
 
@@ -51,5 +51,5 @@ From the HAR (script or by hand):
 ## What not to do
 
 - Do not commit HAR, cookies, `getToken` bodies, or response JSON.
-- Do not crawl the portal from ad-hoc pytest/curl scripts. The opt-in smoke test (`scripts/smoke_portal.py`, `PORTAL_SMOKE=1 pytest -m integration`) is the allowed login path: read-only, no bodies, not CI.
-- Do not change MCP tools from a partial catalog. Upstream library first; MCP after that. See [`gap.md`](gap.md).
+- Do not crawl the portal from ad-hoc pytest/curl scripts; capture from the browser.
+- Prefer a library class over a raw call when the library covers the route. See [`gap.md`](gap.md).

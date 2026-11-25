@@ -1,3 +1,4 @@
+# Mauro Quality Gate Archetype: python-ci.yml
 name: CI
 
 on:
@@ -19,14 +20,14 @@ jobs:
     name: Lint & Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
       - name: Install dev dependencies
-        run: uv sync --locked --extra dev
+        run: uv sync --extra dev
 
       - name: Ruff – lint
         run: uv run ruff check .
@@ -39,14 +40,14 @@ jobs:
     name: Type Check (mypy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
       - name: Install dev dependencies
-        run: uv sync --locked --extra dev
+        run: uv sync --extra dev
 
       - name: mypy
         run: uv run mypy smartschool_mcp/
@@ -61,24 +62,42 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --locked --extra dev
+        run: uv sync --extra dev
 
       - name: Run tests
-        run: uv run pytest -m "not integration" --cov=smartschool_mcp --cov-report=xml --cov-report=term-missing
+        run: uv run pytest --cov=smartschool_mcp --cov-report=xml --cov-report=term-missing
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
+        uses: codecov/codecov-action@v7
         # Only upload coverage once (from latest Python)
         if: matrix.python-version == '3.13'
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
           fail_ci_if_error: false
+
+  # ── Mauro Quality Gate ───────────────────────────────────────────────────────
+  quality-gate:
+    name: Mauro Quality Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Run Mauro Quality Gate Audit
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/MauroDruwel/quality-gate/main/scripts/audit_project.py -o audit_project.py
+          python audit_project.py . --strict
+

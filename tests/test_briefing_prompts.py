@@ -1,65 +1,71 @@
-"""MCP ochtend-/weekbriefing prompt templates must match the mcpb manifest."""
+"""The ochtendbriefing and weekbriefing prompts.
+
+Claude Desktop only accepts a ``prompts/get`` answer that matches the
+template in the extension's ``manifest.json``, so the server's text and the
+manifest's text must be identical.
+"""
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
-from smartschool_mcp.briefing_prompts import (
-    ochtendbriefing_text,
-    render_manifest_prompt,
-    weekbriefing_text,
-)
+import pytest
+
+import smartschool_mcp.server as srv
+from smartschool_mcp import prompts
 
 ROOT = Path(__file__).resolve().parent.parent
+NAMES = ("ochtendbriefing", "weekbriefing")
 
 
-def _manifest_prompt(name: str) -> dict:
+def _manifest_prompts() -> dict[str, dict]:
     manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
-    prompts = {p["name"]: p for p in manifest["prompts"]}
-    return prompts[name]
+    return {p["name"]: p for p in manifest.get("prompts", [])}
 
 
-def test_manifest_declares_both_prompts() -> None:
-    for name in ("ochtendbriefing", "weekbriefing"):
-        prompt = _manifest_prompt(name)
-        assert prompt["arguments"] == ["child"]
-        assert "${arguments.child}" in prompt["text"]
-        assert "get_children" in prompt["text"]
-        assert "elliot" not in prompt["text"].lower()
+def _server_tools() -> set[str]:
+    source = (ROOT / "smartschool_mcp" / "server.py").read_text(encoding="utf-8")
+    return set(re.findall(r"@mcp\.tool\(\)\ndef (\w+)\(", source))
 
 
-def test_prompts_read_study_material_through_planner_attachments() -> None:
-    """The planner lists never carry study material; the detail call does."""
-    for name in ("ochtendbriefing", "weekbriefing"):
-        text = _manifest_prompt(name)["text"]
-        assert "get_planner_attachments" in text
-        assert "get_reports" in text
-        assert "published_date" in text
-        assert "Log nooit zelf in" in text
+@pytest.mark.asyncio
+async def test_server_offers_both_prompts() -> None:
+    listed = {p.name for p in await srv.mcp.list_prompts()}
+
+    assert set(NAMES) <= listed
 
 
-def test_evening_section_is_renamed() -> None:
-    text = _manifest_prompt("ochtendbriefing")["text"]
-    assert "Vanavond te doen" in text
-    assert "Vanavond zeker" not in text
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", NAMES)
+async def test_server_text_matches_the_manifest(name: str) -> None:
+    result = await srv.mcp.get_prompt(name)
+    text = result.messages[0].content.text  # type: ignore[union-attr]
+
+    assert text == _manifest_prompts()[name]["text"]
 
 
-def test_runtime_text_matches_manifest_substitution() -> None:
-    """Claude Desktop rejects prompts/get that diverge from the template."""
-    for name, render in (
-        ("ochtendbriefing", ochtendbriefing_text),
-        ("weekbriefing", weekbriefing_text),
-    ):
-        template = _manifest_prompt(name)["text"]
-        for child in ("", "Lisa", "Sofie"):
-            expected = template.replace("${arguments.child}", child)
-            assert render(child) == expected
-            assert len(render(child)) == len(expected)
+@pytest.mark.parametrize("name", NAMES)
+def test_prompt_only_names_tools_the_server_has(name: str) -> None:
+    text = prompts.BRIEFINGS[name]
+    named = set(re.findall(r"\b((?:get|download)_[a-z_]+)\b", text))
+
+    assert named
+    assert named <= _server_tools(), named - _server_tools()
 
 
-def test_render_helper_matches_named_wrappers() -> None:
-    assert render_manifest_prompt("ochtendbriefing", child="Ann") == (
-        ochtendbriefing_text("Ann")
-    )
-    assert "get_planned_elements" in weekbriefing_text("")
+@pytest.mark.parametrize("name", NAMES)
+def test_prompt_is_read_only(name: str) -> None:
+    text = prompts.BRIEFINGS[name]
+
+    assert "Alleen lezen" in text
+    assert "Log nooit zelf in" in text
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_prompt_drops_empty_sections_entirely(name: str) -> None:
+    """A heading with "Geen taken" under it is noise on a phone screen."""
+    text = prompts.BRIEFINGS[name]
+
+    assert "zonder inhoud laat je volledig weg" in text.lower()

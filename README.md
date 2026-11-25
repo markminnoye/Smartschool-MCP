@@ -1,76 +1,74 @@
 # Smartschool MCP Server
 
+<!-- mcp-name: io.github.MauroDruwel/smartschool-mcp -->
+
 [![CI](https://github.com/MauroDruwel/Smartschool-MCP/actions/workflows/ci.yml/badge.svg)](https://github.com/MauroDruwel/Smartschool-MCP/actions/workflows/ci.yml)
+[![Mauro Quality Gate](https://img.shields.io/badge/Mauro%20Quality%20Gate-Passed-2ea44f?style=flat&logo=github)](https://github.com/MauroDruwel/quality-gate)
 [![codecov](https://codecov.io/gh/MauroDruwel/Smartschool-MCP/branch/main/graph/badge.svg)](https://codecov.io/gh/MauroDruwel/Smartschool-MCP)
+[![PyPI version](https://img.shields.io/pypi/v/smartschool-mcp)](https://pypi.org/project/smartschool-mcp/)
 [![License: MIT](https://img.shields.io/github/license/MauroDruwel/Smartschool-MCP)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
 
 Connect Claude (and other MCP clients) to your Smartschool account — ask about grades, assignments, messages, and your schedule in plain language.
-
-The Claude Desktop extension is published by Sonic Rocket. This repository includes the original Smartschool MCP, copyright (c) 2025 Mauro Druwel, under the MIT license in `LICENSE`. The portal client is [`svaningelgem/smartschool`](https://github.com/svaningelgem/smartschool), also MIT.
-
-## Claude Code plugin
-
-[`claude-plugin/`](claude-plugin/) is a downloadable Claude Code plugin (skills + local scripts) for agenda, berichten, cijfers, and a Dutch daily parent briefing (`/smartschool:daily-briefing`). It uses the same account file as this MCP server. Install with `claude --plugin-dir ./claude-plugin` after `uv sync`; steps are in [`claude-plugin/README.md`](claude-plugin/README.md). A hosted web demo is out of scope.
 
 ## Tools
 
 | Tool | What it does |
 |------|-------------|
 | `get_courses` | List enrolled courses with teacher info |
-| `get_course_documents` | Documenten per course (TopNav id) or the course list that holds those ids |
-| `download_course_document` | Download one file from a course Documenten folder |
 | `get_results` | Grades with optional filtering, pagination, and statistics |
-| `get_future_tasks` | Upcoming assignments organised by date |
+| `get_future_tasks` | Upcoming assignments organised by date (agenda, or planner when the agenda is empty) |
 | `get_messages` | Inbox/sent/trash with search, sender filter, and body retrieval |
-| `get_schedule` | Day Planner calendar by offset (0 = today, 1 = tomorrow, …) |
+| `get_schedule` | Day schedule by offset (0 = today, 1 = tomorrow, …), from the agenda or the planner |
 | `get_periods` | Academic terms for the current school year |
 | `get_reports` | Available report cards |
-| `get_planned_elements` | Planner calendar for a date range (optional `types` / `includes`), including element id, description, and upload folders when the payload has them |
-| `get_planner_attachments` | Upload folders and files for one planner item (`includes=upload-folders`; live JSON shape not verified) |
-| `download_planner_file` | Download a planner file when the payload includes a same-host URL |
+| `get_planned_elements` | Planner items for the next N days: assignments, to-dos, events, days off, and the lessons that are an exam or a test (`is_exam`). Each item says whether it has more to show (`has_attachments`, `has_links`, `has_description`), in the same single request; `types` filter, `include_details` for the descriptions, attachments and links themselves |
+| `get_planned_element_details` | One planner item in full: description, attachments, links (weblinks, documents, Bookwidget titles) |
+| `download_planned_attachment` | Download an attachment of a planner item |
+| `get_course_documents` | Browse a course's Documenten folder by folder (or list the courses) |
+| `download_course_document` | Download a file from a course's Documenten |
+| `get_learning_paths` | List a course's leerpaden |
+| `get_learning_path` | Sections and steps of a leerpad, with the pupil's progress and the address of web links and Bookwidgets |
 | `get_student_support_links` | School support resources and links |
-| `get_children` | Linked children on Mijn kinderen (parent/co-account) |
-| `switch_child` | Switch the session to another linked child |
+| `get_student_notes` | Student file notes (Leerlingvolgsysteem), without confidential notes; details on request (`text`, `fields`, `date`, `choice`, `attachments` as name + mime) |
+| `get_student_absences` | Absences recorded in the Leerlingvolgsysteem (date, code, description, part of day) |
 | `get_attachments` | List attachments for a specific message |
 | `download_attachment` | Download a specific attachment by message and file ID |
 | `get_homepage_blocks` | "In de kijker" blocks pinned to the homepage (e.g. monthly menu, calendar) |
 | `download_homepage_image` | Download an image embedded in a homepage block |
 
-## Claude Desktop extension
-
-Parents install a one-click `.mcpb` from the [GitHub Releases](https://github.com/markminnoye/Smartschool-MCP/releases) page. Each published tag builds `smartschool-mcp-<version>.mcpb` and attaches it to that release (Claude Desktop only shows **Update** when the version string changes). Pull-request builds still upload a temporary **MCPB** Actions artifact (`smartschool-mcp-mcpb`) for testers. The Dutch steps, test questions, and login-lockout reset are in [`docs/claude-desktop-test.md`](docs/claude-desktop-test.md).
-
-The bundle also exposes MCP prompts **ochtendbriefing** (daily standup) and **weekbriefing** (coming school week). Pick them in Claude Desktop’s prompt UI (optional `child` argument); Claude then calls the Smartschool tools.
-
-The bundle installs `smartschool>=0.13.0,<0.14` from PyPI and starts the existing stdio server with `uv`. Claude Desktop's Configure dialog asks for school, username, password, the child's birth date, and the child's name. On startup those values are saved once into the shared account file (`~/.config/smartschool/credentials.json`, or `$GROK_PLUGIN_DATA/credentials.json`; on macOS the password and birth date go to the Keychain). If that profile is already stored, the store wins and the dialog is not copied again. The child name on the profile is what `get_children` / `switch_child` should select. A failed login writes `~/.cache/smartschool/<subdomain>/<user>/auth_failed` after one password POST — the same marker as the Claude plugin. Saving does not log in.
-
 ## Quick start — Claude Desktop
 
-Parents: install the `.mcpb` from [GitHub Releases](https://github.com/markminnoye/Smartschool-MCP/releases) (see above). That is the only distribution channel. This version is not published on PyPI or in the MCP Registry; the `smartschool-mcp` package on PyPI is an older upstream release without these changes.
+The easiest way: download `smartschool-mcp-<version>.mcpb` from the latest [GitHub Release](https://github.com/MauroDruwel/Smartschool-MCP/releases), open it with Claude Desktop and fill in your school address, username, password and verification answer. Claude Desktop needs [uv](https://docs.astral.sh/uv/) on your computer to run it.
 
-Developers can run the server from a checkout. Save the account once in `~/.config/smartschool/credentials.json` (the same file the Claude plugin and Grok plugin use). The server reads it when the process has no `SMARTSCHOOL_USERNAME` and `SMARTSCHOOL_PASSWORD`. Set `GROK_PLUGIN_DATA` to store that file in another directory. `SMARTSCHOOL_PROFILE` picks one login when several are saved. Each profile's `children` list stores a name and, when known, the `account_id` and `platform` returned by `get_children`.
+Or install it from PyPI:
 
 ```bash
-git clone https://github.com/markminnoye/Smartschool-MCP.git
-cd Smartschool-MCP
-uv sync
+uvx mcp install smartschool-mcp \
+  -e SMARTSCHOOL_USERNAME="you" \
+  -e SMARTSCHOOL_PASSWORD="secret" \
+  -e SMARTSCHOOL_MAIN_URL="school.smartschool.be" \
+  -e SMARTSCHOOL_MFA="YYYY-MM-DD"
 ```
 
-Then add it to `claude_desktop_config.json` without a second copy of the password:
+Or add it manually to `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "smartschool": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/Smartschool-MCP", "run", "smartschool-mcp"]
+      "command": "uvx",
+      "args": ["smartschool-mcp"],
+      "env": {
+        "SMARTSCHOOL_USERNAME": "you",
+        "SMARTSCHOOL_PASSWORD": "secret",
+        "SMARTSCHOOL_MAIN_URL": "school.smartschool.be",
+        "SMARTSCHOOL_MFA": "YYYY-MM-DD"
+      }
     }
   }
 }
 ```
-
-A complete `SMARTSCHOOL_*` environment overrides that one process. It is not written back into the file.
 
 Config file locations: `%APPDATA%\Claude\claude_desktop_config.json` (Windows) · `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) · `~/.config/Claude/claude_desktop_config.json` (Linux)
 
@@ -82,24 +80,26 @@ The server supports **Streamable HTTP** transport for use as a remote integratio
 
 | Mode | Best for | Setup | Credentials | Auth method |
 |------|----------|-------|-------------|-------------|
-| **Single-user** | Personal use or one household | Simple, local | In env vars | Static Bearer token (required off-loopback) |
+| **Single-user** | Personal use or one household | Simple, local | In env vars | Optional static Bearer token |
 | **Universal** | Hosting for multiple users | Requires public URL + HTTPS | Via login form | OAuth 2.1 with login form |
 
 ### Single-user mode
 
-One server instance. The account comes from `~/.config/smartschool/credentials.json`, unless this process already has `SMARTSCHOOL_USERNAME` and `SMARTSCHOOL_PASSWORD`:
+One server instance, your credentials in environment variables:
 
 ```bash
-export MCP_API_KEY="a-long-random-secret"   # required unless --host is 127.0.0.1
+export SMARTSCHOOL_USERNAME="..."
+export SMARTSCHOOL_PASSWORD="..."
+export SMARTSCHOOL_MAIN_URL="school.smartschool.be"
+export SMARTSCHOOL_MFA="YYYY-MM-DD"
+export MCP_API_KEY="a-long-random-secret"   # optional but recommended
 
 smartschool-mcp --transport streamable-http --host 0.0.0.0 --port 8000
 ```
 
-The default `--host` is `127.0.0.1`. The server refuses to listen on any other address in single-user mode without `MCP_API_KEY`, because anyone who can reach the port could read the account.
-
 Add to claude.ai → Settings → Integrations:
 - **URL:** `https://your-domain.example.com/mcp`
-- **Authorization header:** `Bearer <your MCP_API_KEY>`
+- **Authorization header:** `Bearer <your MCP_API_KEY>` (if set)
 
 ### Universal mode — OAuth 2.1 login flow
 
@@ -148,19 +148,16 @@ After setting up the tunnel/proxy, your server will be reachable at `https://you
 | Variable | CLI flag | Default | Description |
 |----------|----------|---------|-------------|
 | `MCP_TRANSPORT` | `--transport` | `stdio` | `stdio` or `streamable-http` |
-| `MCP_HOST` | `--host` | `127.0.0.1` | Bind address (HTTP only). A non-loopback address needs `MCP_API_KEY` or universal mode |
+| `MCP_HOST` | `--host` | `0.0.0.0` | Bind address (HTTP only) |
 | `MCP_PORT` | `--port` | `8000` | Port (HTTP only) |
-| `MCP_API_KEY` | — | — | Static Bearer token (single-user mode only). Required when `MCP_HOST` is not loopback |
-| `SMARTSCHOOL_DOWNLOAD_DIR` | — | `~/Downloads/smartschool` | Folder for downloaded files. A tool's `save_path` must be a subfolder of it |
+| `MCP_API_KEY` | — | — | Static Bearer token (single-user mode only) |
 | `MCP_UNIVERSAL` | `--universal` | off | Enable universal mode (set to `1`, `true`, or `yes`) |
 | `MCP_ISSUER_URL` | `--issuer-url` | — | **Required in universal mode.** Public URL of the server, e.g. `https://mcp.example.com` |
 | `SESSION_TTL_SECONDS` | — | `3600` | How long to cache Smartschool sessions (universal mode) |
-| `SMARTSCHOOL_USERNAME` | — | — | Process override for the username. Otherwise the shared credentials file is used |
-| `SMARTSCHOOL_PASSWORD` | — | — | Process override for the password |
-| `SMARTSCHOOL_MAIN_URL` | — | — | Process override for the school host |
-| `SMARTSCHOOL_MFA` | — | — | Process override for the child birth date `YYYY-MM-DD` |
-| `SMARTSCHOOL_PROFILE` | — | — | Which saved login to use (`dering`, `dering:user`, or `user@dering`) |
-| `GROK_PLUGIN_DATA` | — | — | Directory for `credentials.json` instead of `~/.config/smartschool/` |
+| `SMARTSCHOOL_USERNAME` | — | — | Your Smartschool username (single-user mode only) |
+| `SMARTSCHOOL_PASSWORD` | — | — | Your Smartschool password (single-user mode only) |
+| `SMARTSCHOOL_MAIN_URL` | — | — | School hostname, e.g. `school.smartschool.be` (single-user mode only) |
+| `SMARTSCHOOL_MFA` | — | — | Date of birth `YYYY-MM-DD` if required (single-user mode only) |
 
 ## Contributing
 

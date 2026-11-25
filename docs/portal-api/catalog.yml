@@ -2,17 +2,17 @@
 # Schema: docs/portal-api/README.md
 #
 # Sources:
-# - Chrome HAR docs/portal-api/raw/dering.smartschool.be.har (gitignored), 2026-09-17
-#   parent/co-account on depass.smartschool.be and dering.smartschool.be
-#   (file overwritten later the same day: De Ring Intradesk / Zoeken / Vakken
+# - Chrome HAR docs/portal-api/raw/school-b.smartschool.be.har (gitignored), 2026-09-17
+#   parent/co-account on school-a.smartschool.be and school-b.smartschool.be
+#   (file overwritten later the same day: school B Intradesk / Zoeken / Vakken
 #   course folders, then again with Meldingen /Profile/Notify; keys merged below)
-# - Chrome HAR docs/portal-api/raw/switch-child-depass-to-dering.har (gitignored), 2026-09-22
+# - Chrome HAR docs/portal-api/raw/switch-child.har (gitignored), 2026-09-22
 #   Mijn kinderen switch: gotourl → /otp/{token} → relative /Studentcard
 #   MCP calendar GET omits types by default. smartschool 0.13.0 has no
 #   PinnedPlannedElements and no includes on the list call.
 #
-# observed_on: "depass.smartschool.be parent/co-account"
-#              | "dering.smartschool.be parent/co-account"
+# observed_on: "school-a.smartschool.be parent/co-account"
+#              | "school-b.smartschool.be parent/co-account"
 #              | "library"
 
 endpoints:
@@ -23,7 +23,7 @@ endpoints:
     query_keys: [from, to]
     body_keys: []
     module: planner
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: PlannedElements
     mcp_tool: get_planned_elements
     notes: >
@@ -40,7 +40,7 @@ endpoints:
     query_keys: [from, to, includes, types]
     body_keys: []
     module: planner
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: PlannedElements
     mcp_tool: get_planned_elements
     notes: >
@@ -55,7 +55,7 @@ endpoints:
     query_keys: [includes]
     body_keys: []
     module: planner
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: >
@@ -67,7 +67,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: planner
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -76,7 +76,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: planner
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -87,7 +87,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: labels
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -96,7 +96,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: labels
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -105,7 +105,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: labels
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -116,7 +116,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: group-filters
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: >
@@ -130,7 +130,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: group-filters
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Same propertyId set as the properties list above.
@@ -142,7 +142,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: lesson-content
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: ApplicableAssignmentTypes
     mcp_tool: none
     notes: >
@@ -166,7 +166,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: courses
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: CourseList
     mcp_tool: none
     notes: Also used by Smartschool.platform_id. MCP get_courses uses Results courses instead.
@@ -178,7 +178,7 @@ endpoints:
     query_keys: []
     body_keys: [userID]
     module: topnav
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: CSRF/session token for the SPA. Body key userID only; never store the body or response.
@@ -190,7 +190,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: publishers
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -201,7 +201,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: i18n
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Static translation bundles loaded with Planner. Not student data.
@@ -213,10 +213,10 @@ endpoints:
     query_keys: []
     body_keys: []
     module: courses
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: TopNavCourses
     mcp_tool: none
-    notes: Was library-only; now seen live on De Ring.
+    notes: Was library-only; now seen live on school B.
 
 
   # --- Results / reports / periods ---
@@ -225,12 +225,12 @@ endpoints:
     query_keys: []
     body_keys: []
     module: results
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: Courses
     mcp_tool: get_courses
     notes: >
-      Fails when no results exist yet; library suggests TopNavCourses. Seen live on De Pass
-      and De Ring.
+      Fails when no results exist yet; library suggests TopNavCourses. Seen live on school A
+      and school B.
 
 
   # --- Course documents ---
@@ -239,10 +239,10 @@ endpoints:
     query_keys: []
     body_keys: []
     module: course-documents
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: FolderItem
     mcp_tool: get_course_documents
-    notes: HTML listing, not JSON. File download URLs are parsed from the page. Live on De Ring. MCP download_course_document saves the parsed /Documents/Download/Index path.
+    notes: HTML listing, not JSON. File download URLs are parsed from the page. Live on school B. MCP download_course_document saves the parsed /Documents/Download/Index path.
 
 
   # --- Results / reports / periods ---
@@ -251,7 +251,7 @@ endpoints:
     query_keys: [pageNumber, itemsOnPage, componentIds, courseIds, periodIds]
     body_keys: []
     module: results
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: Results
     mcp_tool: get_results
     notes: >
@@ -263,7 +263,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: results
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: Result
     mcp_tool: get_results
     notes: Lazy .details on each result. Seen live from the results detail UI.
@@ -273,7 +273,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: results
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: Periods
     mcp_tool: get_periods
 
@@ -353,7 +353,7 @@ endpoints:
     body_keys: [command]
     xml_action: message list
     module: messages
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: MessageHeaders
     mcp_tool: get_messages
     notes: Live XML subsystem is postboxes; action message list.
@@ -364,7 +364,7 @@ endpoints:
     body_keys: [command]
     xml_action: show message
     module: messages
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: Message
     mcp_tool: get_messages
     notes: Live XML subsystem is postboxes; action show message. Do not store message HTML.
@@ -572,10 +572,10 @@ endpoints:
     query_keys: []
     body_keys: []
     module: intradesk
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: IntradeskFolder
     mcp_tool: none
-    notes: Live folder listing on De Ring. Library always appends /{folderId} (empty id for root).
+    notes: Live folder listing on school B. Library always appends /{folderId} (empty id for root).
 
   - method: GET
     path: /intradesk/api/v1/{platformId}/files/{fileId}/download
@@ -593,7 +593,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: student-support
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: StudentSupportLinks
     mcp_tool: get_student_support_links
 
@@ -604,7 +604,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: homepage
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: get_homepage_blocks
     notes: MCP parses homepage__block HTML. Not a library class. Seen live as the Start page.
@@ -665,7 +665,7 @@ endpoints:
     query_keys: [from, to, types]
     body_keys: []
     module: planner
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: PlannedElements
     mcp_tool: get_planned_elements
     notes: >
@@ -678,7 +678,7 @@ endpoints:
     query_keys: [from, includes, to]
     body_keys: []
     module: planner
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: PlannedElements
     mcp_tool: get_planned_elements
     notes: >
@@ -690,21 +690,19 @@ endpoints:
     query_keys: []
     body_keys: []
     module: planner
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
-    mcp_tool: get_planner_attachments
+    mcp_tool: get_planned_element_details
     notes: >
       Assignment detail from the Planner UI. Second path segment is a UUID-like
-      assignment id. MCP calls this only as a fallback when an assignment row
-      has no description and no upload folders. Response body is not in the
-      fixtures and is not live-verified.
+      assignment id. Carries the description, attachments and upload folder.
 
   - method: POST
     path: /planner/api/v1/planned-lesson-clusters/list
     query_keys: []
     body_keys: [dateTimeFrom, dateTimeTo, id, period, type, wholeDay]
     module: planner
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -713,7 +711,7 @@ endpoints:
     query_keys: []
     body_keys: [color, courses, dateTimeFrom, dateTimeTo, groups, icon, name, organisers, participants, period, plannedElement, plannedElementId, plannedElementType, platformId, publicInfo, reservations, userRoles, users, weblinks, wholeDay]
     module: planner
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Create/save to-do. Key names only; do not store name/participant values.
@@ -723,7 +721,7 @@ endpoints:
     query_keys: []
     body_keys: [joinPlannedElements]
     module: planner
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -732,7 +730,7 @@ endpoints:
     query_keys: []
     body_keys: [showResolvedPlannedElements, showTodos]
     module: planner
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -741,7 +739,7 @@ endpoints:
     query_keys: []
     body_keys: [hideAfterTime, hideBeforeTime, nextDays, showTodos, showWeekends, useStartEndTime, view, zoom]
     module: planner
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -750,7 +748,7 @@ endpoints:
     query_keys: []
     body_keys: [config, title, type]
     module: planner
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: ICS feed profile save. Key names only.
@@ -760,7 +758,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: planner
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -771,7 +769,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: i18n
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Translation JSON without cache-busting .rev-{hash}. Same family as the rev-hash row.
@@ -783,7 +781,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: results
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -792,7 +790,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: results
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -801,7 +799,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: results
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: Reports
     mcp_tool: get_reports
     notes: Live path has a trailing slash. Library calls /results/api/v1/reports without it.
@@ -814,7 +812,7 @@ endpoints:
     body_keys: [command]
     xml_action: postboxes/calculate_postbox_counters
     module: messages
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -824,7 +822,7 @@ endpoints:
     body_keys: [command]
     xml_action: postboxes/loadtooltip
     module: messages
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -834,7 +832,7 @@ endpoints:
     body_keys: [command]
     xml_action: postboxes/smartbox list
     module: messages
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -844,7 +842,7 @@ endpoints:
     body_keys: [command]
     xml_action: quickactions/reloadunreadmessages
     module: messages
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -854,7 +852,7 @@ endpoints:
     body_keys: [command]
     xml_action: maintenance/save postbox
     module: messages
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -866,7 +864,7 @@ endpoints:
     body_keys: [command]
     xml_action: datepicker/get calendar items
     module: homepage
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -876,7 +874,7 @@ endpoints:
     body_keys: [command]
     xml_action: news/news list
     module: homepage
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -885,7 +883,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: homepage
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -894,7 +892,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: homepage
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -903,7 +901,7 @@ endpoints:
     query_keys: []
     body_keys: [saveaction]
     module: homepage
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -914,7 +912,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: studentcard
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -923,21 +921,21 @@ endpoints:
     query_keys: []
     body_keys: []
     module: studentcard
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
-    mcp_tool: get_children
+    mcp_tool: none
     notes: >
-      Empty POST. De Pass returns HTTP 500 HTML unless the request sends
+      Empty POST. school A returns HTTP 500 HTML unless the request sends
       X-Requested-With: XMLHttpRequest (then application/json list). Current
       child can have accountID 0; switch ids are in the Studentcard topnav
-      gotourl links. MCP get_children sends the XHR header and merges topnav ids.
+      gotourl links. A client must send the XHR header and take the ids from topnav.
 
   - method: POST
     path: /Studentcard/Lvs/getLatestItems
     query_keys: []
     body_keys: []
     module: studentcard
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -946,7 +944,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: studentcard
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -955,7 +953,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: studentcard
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -964,7 +962,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: studentcard
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -973,7 +971,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: studentcard
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -982,9 +980,9 @@ endpoints:
     query_keys: []
     body_keys: []
     module: studentcard
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
-    mcp_tool: switch_child
+    mcp_tool: none
     notes: >
       HTML child-switch redirect. Path id is an account id from getStudents;
       do not commit it. Cross-school children 302 to ``/otp/{token}`` on the
@@ -1002,7 +1000,7 @@ endpoints:
     body_keys: [command]
     xml_action: lvs/getToolbarButtons
     module: lvs
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1012,7 +1010,7 @@ endpoints:
     body_keys: [command]
     xml_action: lvs_groups/getGroupPupils
     module: lvs
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1022,7 +1020,7 @@ endpoints:
     body_keys: [command]
     xml_action: lvs_pupils/getCatListView
     module: lvs
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1032,9 +1030,9 @@ endpoints:
     body_keys: [command]
     xml_action: lvs_pupils/getItemParams
     module: lvs
-    observed_on: depass.smartschool.be parent/co-account
-    library: unmapped
-    mcp_tool: none
+    observed_on: school-a.smartschool.be parent/co-account
+    library: StudentNoteDetails
+    mcp_tool: get_student_notes
 
   - method: POST
     path: /?module=LVS&file=dispatcher
@@ -1042,7 +1040,7 @@ endpoints:
     body_keys: [command]
     xml_action: lvs_pupils/getPupilInfo
     module: lvs
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Pupil dossier payload. Catalog stores the XML action name only.
@@ -1053,9 +1051,9 @@ endpoints:
     body_keys: [command]
     xml_action: lvs_pupils/getUserData
     module: lvs
-    observed_on: depass.smartschool.be parent/co-account
-    library: unmapped
-    mcp_tool: none
+    observed_on: school-a.smartschool.be parent/co-account
+    library: StudentNotes, StudentAbsences
+    mcp_tool: get_student_notes, get_student_absences
 
   - method: POST
     path: /?module=LVS&file=dispatcher
@@ -1063,7 +1061,7 @@ endpoints:
     body_keys: [command]
     xml_action: lvs_pupils/getUserStart
     module: lvs
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1072,7 +1070,7 @@ endpoints:
     query_keys: [function]
     body_keys: [gid, pid]
     module: lvs
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Observed function=getGroupsAbove. Body keys only; drop gid/pid values.
@@ -1082,7 +1080,7 @@ endpoints:
     query_keys: [function]
     body_keys: []
     module: lvs
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Observed function=getEnvironmentSettings.
@@ -1092,7 +1090,7 @@ endpoints:
     query_keys: [function]
     body_keys: [archiveID, color, getData, groupID, option, pupilID, type, value]
     module: lvs
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: >
@@ -1104,7 +1102,7 @@ endpoints:
     query_keys: []
     body_keys: [id]
     module: lvs
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Body key id only; values are group/tree nodes.
@@ -1114,7 +1112,7 @@ endpoints:
     query_keys: []
     body_keys: [type]
     module: lvs
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1123,7 +1121,7 @@ endpoints:
     query_keys: []
     body_keys: [groupID, pupilID]
     module: lvs
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Key names only.
@@ -1133,7 +1131,7 @@ endpoints:
     query_keys: []
     body_keys: [groupID, pupilID]
     module: lvs
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Key names only.
@@ -1145,7 +1143,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: contact-moments
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1154,7 +1152,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: contact-moments
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1163,7 +1161,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: contact-moments
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1174,7 +1172,7 @@ endpoints:
     query_keys: [endDate, startDate]
     body_keys: []
     module: forms
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1183,7 +1181,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: forms
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1192,7 +1190,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: forms
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1201,7 +1199,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: forms
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1210,7 +1208,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: forms
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1219,7 +1217,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: forms
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1230,7 +1228,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: photos
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1239,7 +1237,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: photos
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1248,7 +1246,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: photos
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1259,11 +1257,11 @@ endpoints:
     query_keys: []
     body_keys: []
     module: timetable
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: >
-      Separate timetable SPA from Planner. Seen on De Pass and De Ring; not the Agenda XML
+      Separate timetable SPA from Planner. Seen on school A and school B; not the Agenda XML
       dispatcher.
 
 
@@ -1273,7 +1271,7 @@ endpoints:
     query_keys: []
     body_keys: [isView, selection]
     module: goals
-    observed_on: depass.smartschool.be parent/co-account
+    observed_on: school-a.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Opened from a results/detail context. Key names only.
@@ -1286,7 +1284,7 @@ endpoints:
     body_keys: [command]
     xml_action: overview/getGroupsXML
     module: news
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1296,7 +1294,7 @@ endpoints:
     body_keys: [command]
     xml_action: overview/loadMsg
     module: news
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: News item body is in the XML command; not catalogued.
@@ -1309,7 +1307,7 @@ endpoints:
     body_keys: [command]
     xml_action: wiki/get wikis
     module: wiki
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1320,7 +1318,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: links
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1329,7 +1327,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: links
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1340,7 +1338,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: profile
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1349,10 +1347,10 @@ endpoints:
     query_keys: []
     body_keys: []
     module: profile
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
-    notes: Loaded with the Profile module shell on De Ring.
+    notes: Loaded with the Profile module shell on school B.
 
 
   # --- Auth ---
@@ -1361,7 +1359,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: auth
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: >
@@ -1369,7 +1367,7 @@ endpoints:
       crawl.
 
 
-  # --- Second HAR (2026-09-17 De Ring recapture); keys only ---
+  # --- Second HAR (2026-09-17 school B recapture); keys only ---
 
   # --- Intradesk ---
   - method: GET
@@ -1377,7 +1375,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: intradesk
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: HTML SPA shell. Seen as a HAR page (XHR+Fetch export omitted the document request).
@@ -1387,7 +1385,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: intradesk
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1396,7 +1394,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: intradesk
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: >
@@ -1408,7 +1406,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: intradesk
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Empty JSON body (`{}`). Library MyDocs uses the same action name on /mydoc, not here.
@@ -1418,7 +1416,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: intradesk
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Empty JSON body (`{}`). Library MyDocs unfavourite action is unmark-as-favourite.
@@ -1430,7 +1428,7 @@ endpoints:
     query_keys: []
     body_keys: [pathname, query]
     module: search
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Form body. Key names only; pathname/query values dropped.
@@ -1440,7 +1438,7 @@ endpoints:
     query_keys: []
     body_keys: [allCommunityPlatforms, module, queryString, since]
     module: search
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: >
@@ -1454,7 +1452,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: course-documents
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: FolderItem
     mcp_tool: get_course_documents
     notes: Subfolder HTML. Library follows browse_url parsed from the parent page. MCP accepts that browse_url.
@@ -1466,7 +1464,7 @@ endpoints:
     query_keys: [courseID, function, ssID]
     body_keys: []
     module: uploadzone
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: HTML shell. Observed function=main.
@@ -1477,7 +1475,7 @@ endpoints:
     body_keys: [command]
     xml_action: page/start
     module: uploadzone
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: >
@@ -1490,7 +1488,7 @@ endpoints:
     body_keys: [command]
     xml_action: page/uploadmapdetail
     module: uploadzone
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: >
@@ -1502,7 +1500,7 @@ endpoints:
     query_keys: [courseID, ssID]
     body_keys: [id]
     module: uploadzone
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Folder tree. Body key id only; drop values.
@@ -1514,7 +1512,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: courses
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Planner course page HTML.
@@ -1524,7 +1522,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: weblinks
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1533,7 +1531,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: classmates
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1542,16 +1540,16 @@ endpoints:
     query_keys: []
     body_keys: []
     module: lpaths
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
-    mcp_tool: none
+    mcp_tool: get_learning_paths
 
   - method: GET
     path: /Tasks/Index/Index/courseID/{courseId}/ssID/{platformId}
     query_keys: []
     body_keys: []
     module: tasks
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1560,7 +1558,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: video-call
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1569,7 +1567,7 @@ endpoints:
     query_keys: [courseID, function, ssID]
     body_keys: []
     module: news
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Course news HTML. function=main when present.
@@ -1579,7 +1577,7 @@ endpoints:
     query_keys: [courseID, function, ssID]
     body_keys: []
     module: exercises
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Observed function=main.
@@ -1589,7 +1587,7 @@ endpoints:
     query_keys: [courseID, function, ssID]
     body_keys: []
     module: cooperate
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Observed function=main.
@@ -1599,7 +1597,7 @@ endpoints:
     query_keys: [courseID, function, ssID]
     body_keys: []
     module: forum
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Observed function=main.
@@ -1609,7 +1607,7 @@ endpoints:
     query_keys: [courseID, function, ssID]
     body_keys: []
     module: wiki
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Course wiki HTML shell. Dispatcher POST wiki/get wikis is a separate row.
@@ -1621,7 +1619,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: video-call
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1630,7 +1628,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: video-call
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1639,7 +1637,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: video-call
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1648,7 +1646,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: planner
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1657,19 +1655,19 @@ endpoints:
     query_keys: []
     body_keys: []
     module: planner
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
 
-  # --- Third HAR (2026-09-17 De Ring Meldingen); keys only ---
+  # --- Third HAR (2026-09-17 school B Meldingen); keys only ---
 
   - method: GET
     path: /Profile/Notify
     query_keys: []
     body_keys: []
     module: notifications
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: >
@@ -1681,7 +1679,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: notifications
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1690,7 +1688,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: notifications
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1699,7 +1697,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: notifications
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
 
@@ -1708,7 +1706,7 @@ endpoints:
     query_keys: []
     body_keys: [value]
     module: notifications
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Form body. Key name only; value is a boolean-like flag.
@@ -1718,7 +1716,7 @@ endpoints:
     query_keys: []
     body_keys: ["extra[endTime]", "extra[startTime]", name, type, value]
     module: notifications
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: >
@@ -1737,7 +1735,7 @@ endpoints:
     query_keys: []
     body_keys: [allowPushNotifications, applicationID]
     module: notifications
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: Form body. applicationID is a UUID-like client id; drop values.
@@ -1747,7 +1745,7 @@ endpoints:
     query_keys: []
     body_keys: []
     module: profile
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: HTML Profile shell. HAR page alongside /Profile/Notify; XHR export omitted the document.
@@ -1757,7 +1755,7 @@ endpoints:
     query_keys: [msgID]
     body_keys: []
     module: messages
-    observed_on: dering.smartschool.be parent/co-account
+    observed_on: school-b.smartschool.be parent/co-account
     library: unmapped
     mcp_tool: none
     notes: >

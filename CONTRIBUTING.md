@@ -85,8 +85,9 @@ uv run smartschool-mcp --transport streamable-http --port 8000
 ```
 smartschool_mcp/
 ├── __init__.py      # Package version
-├── __main__.py      # CLI entry point (stdio & HTTP transport)
-└── server.py        # FastMCP server + all tool definitions
+├── __main__.py      # CLI entry point (stdio & streamable-http transports)
+├── auth.py          # OAuth 2.1 provider (universal mode)
+└── server.py        # MCPServer + all tool definitions
 
 tests/
 ├── conftest.py      # Shared fixtures (mock_session)
@@ -97,7 +98,7 @@ tests/
 .github/
 ├── workflows/
 │   ├── ci.yml       # Lint, typecheck, test matrix (Python 3.10–3.13)
-│   └── mcpb.yml     # Pack the Claude Desktop .mcpb; attach it to a release
+│   └── publish.yml  # Build, publish to PyPI + MCP Registry on release
 ├── ISSUE_TEMPLATE/  # Structured bug/feature templates
 └── PULL_REQUEST_TEMPLATE.md
 ```
@@ -110,14 +111,18 @@ tests/
 
 1. Find the corresponding class in the
    [smartschool library](https://github.com/svaningelgem/smartschool).
+   [`docs/portal-api/`](docs/portal-api/README.md) maps the website's calls to
+   library classes and existing tools.
 2. Add the import to `server.py`.
-3. Decorate with `@_tool` (registers it with `mcp` and runs it in a worker thread, one call at a time per login) and call `_session()` inside the function body.
+3. Decorate with `@mcp.tool()` and call `_session()` inside the function body.
 4. Wrap the entire body in `try / except Exception as e` and return
    `{"error": f"Failed to ...: {e}"}` (or `[{"error": ...}]` for list returns).
 5. Use built-in generics (`list[dict[str, Any]]`, `str | None`) — not
    `typing.List` / `typing.Optional`.
 6. Add tests in `tests/test_tools.py`.
 7. Update `CHANGELOG.md` and the `README.md` features section.
+8. Add the tool to `tools` in `manifest.json` (the Claude Desktop extension);
+   `tests/test_mcpb_bundle.py` fails until it is listed there.
 
 ### Changing the HTTP transport
 
@@ -136,21 +141,15 @@ uv run pytest
 # Run with coverage
 uv run pytest --cov=smartschool_mcp --cov-report=term-missing
 
-# Live read-only catalog smoke (same login+cookies as the MCP; never in CI)
-uv run python scripts/smoke_portal.py              # phase 1 legacy library, then GETs
-uv run python scripts/smoke_portal.py --legacy-only
-PORTAL_SMOKE=1 uv run pytest -m integration        # same run via pytest
+# Run only integration tests (requires real credentials in env)
+uv run pytest -m integration
 ```
-
-`.env` with `SMARTSCHOOL_*` is loaded if present (never commit it). Writes, auth, CSRF, and unmapped XML POSTs are skipped. The table prints status and item counts only — no response bodies.
 
 ### Writing tests
 
 - All tests run without real credentials — use the `mock_session` fixture
   from `conftest.py`.
 - Mark any test that needs real credentials with `@pytest.mark.integration`.
-  Those tests must also require `PORTAL_SMOKE=1` so a local `uv run pytest`
-  with credentials in the environment still never hits Smartschool.
 - Test **error paths** too: patch the relevant smartschool class to raise an
   exception and assert the returned `{"error": "..."}` dict.
 
@@ -179,13 +178,13 @@ PR titles should also follow this format — the CI checks it.
 
 ## Release Process
 
-The only distribution channel is the Claude Desktop `.mcpb` on GitHub
-Releases. Nothing is published to PyPI or the MCP Registry.
+Releases are fully automated via GitHub Actions:
 
-1. Bump `version` in `pyproject.toml`, `manifest.json`,
-   `scripts/build_mcpb.py` (`_DEFAULT_VERSION`), `smartschool_mcp/__init__.py`
-   and `claude-plugin/.claude-plugin/plugin.json`, and run `uv lock`.
-2. Update `CHANGELOG.md` (written in Dutch): move the `[Niet uitgebracht]` entries under a new version heading. GitHub release notes are in Dutch too.
+1. Bump `version` in `pyproject.toml`, `smartschool_mcp/__init__.py`, and
+   `server.json` — all three must match.
+2. Update `CHANGELOG.md`: move `[Unreleased]` entries under a new version heading.
 3. Open a PR, get it merged to `main`.
-4. Create a GitHub Release (tag `vX.Y.Z`) — the `mcpb.yml` workflow builds
-   `smartschool-mcp-<version>.mcpb` and attaches it to that release.
+4. Create a GitHub Release (tag `vX.Y.Z`) — the `publish.yml` workflow then:
+   - Builds the wheel and sdist with `uv build`
+   - Publishes to PyPI via OIDC trusted publishing (no API key needed)
+   - Publishes to the MCP Registry

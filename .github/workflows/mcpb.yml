@@ -1,13 +1,21 @@
-name: MCPB
+name: Claude Desktop extension
+
+# Builds the .mcpb next to the PyPI release. On a published release the file
+# is attached to it; on a pull request that touches the bundle it is only
+# built, validated and kept as a workflow artifact.
 
 on:
-  pull_request:
-  workflow_dispatch:
   release:
     types: [published]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - manifest.json
+      - scripts/build_mcpb.py
+      - .github/workflows/mcpb.yml
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: mcpb-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -17,24 +25,19 @@ jobs:
   pack:
     name: Pack .mcpb
     runs-on: ubuntu-latest
-    # write needed to attach the asset on release:published; PR runs only upload artifacts
     permissions:
-      contents: write
+      contents: write  # gh release upload; pull requests only upload an artifact
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
-        with:
-          enable-cache: true
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      - name: Install mcpb CLI
+      - name: Install the mcpb CLI
         run: npm install -g @anthropic-ai/mcpb@2.1.2
 
-      - name: Resolve bundle version
+      - name: Resolve version
         id: version
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then
@@ -42,29 +45,22 @@ jobs:
           else
             RAW="$(python3 -c 'import json; print(json.load(open("manifest.json"))["version"])')"
           fi
-          VERSION="${RAW#v}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version=${RAW#v}" >> "$GITHUB_OUTPUT"
           echo "tag=${RAW}" >> "$GITHUB_OUTPUT"
-          echo "Resolved mcpb version ${VERSION} (from ${RAW})"
 
-      - name: Build the Claude Desktop bundle
+      - name: Build the bundle
         run: |
           python3 scripts/build_mcpb.py \
             --version "${{ steps.version.outputs.version }}" \
             --output "dist/smartschool-mcp-${{ steps.version.outputs.version }}.mcpb"
-          # Stable name for the Actions artifact / local unzip habit.
-          cp "dist/smartschool-mcp-${{ steps.version.outputs.version }}.mcpb" \
-            dist/smartschool-mcp.mcpb
 
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      - uses: actions/upload-artifact@v7
         with:
           name: smartschool-mcp-mcpb
-          path: |
-            dist/smartschool-mcp.mcpb
-            dist/smartschool-mcp-${{ steps.version.outputs.version }}.mcpb
+          path: dist/*.mcpb
           if-no-files-found: error
 
-      - name: Attach .mcpb to the GitHub Release
+      - name: Attach to the GitHub Release
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}

@@ -25,7 +25,7 @@ Closes #
 - [ ] `mypy smartschool_mcp/` passes locally
 - [ ] `pytest` passes locally
 - [ ] New or changed behaviour is covered by tests
-- [ ] I have updated `CHANGELOG.md` under `[Niet uitgebracht]` (in Dutch)
+- [ ] I have updated `CHANGELOG.md` under `[Unreleased]`
 - [ ] I have updated the documentation / README if necessary
 - [ ] The PR title follows [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, `ci:`)

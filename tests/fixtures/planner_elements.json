@@ -1,0 +1,707 @@
+[
+ {
+  "id": "00000000-0000-0000-0000-000000000001",
+  "platformId": 49,
+  "name": "Toets zuivere stoffen pg 30-45 + ppt + alle oefeningen",
+  "period": {
+   "dateTimeFrom": "2026-11-17T12:05:00+01:00",
+   "dateTimeTo": "2026-11-17T12:55:00+01:00",
+   "wholeDay": false,
+   "deadline": true
+  },
+  "plannedElementType": "planned-assignments",
+  "capabilities": {
+   "canUserTrash": false,
+   "canUserRestoreFromTrash": false,
+   "canUserDelete": false,
+   "canUserEdit": false,
+   "canUserChangeAssignmentType": false,
+   "canUserChangePrivateInfo": false,
+   "canUserChangePublicInfo": false,
+   "canUserReplace": false,
+   "canUserAddReservations": false,
+   "canUserReschedule": false,
+   "canUserPin": false,
+   "canUserResolve": false,
+   "canUserChangeUserColor": true,
+   "canUserChangeUserViewMetadata": true,
+   "canUserCreateVideoCall": false,
+   "canUserSeeVideoCall": true,
+   "canUserManageVideoCall": false,
+   "canUserLinkToDo": true,
+   "canUserDuplicate": false,
+   "canUserChangeOrganisers": false,
+   "canUserChangeParticipants": false,
+   "canUserChangeParticipantGroupFilters": false,
+   "canUserChangeLabels": false,
+   "canUserChangeLocations": false,
+   "canUserSeeProperties": {
+    "id": true,
+    "platformId": true,
+    "name": true,
+    "assignmentType": true,
+    "period": true,
+    "organisers": true,
+    "participants": true,
+    "isParticipant": true,
+    "capabilities": true,
+    "plannedElementType": true,
+    "resolvedStatus": true,
+    "onlineSession": true,
+    "icon": true,
+    "courses": true,
+    "locations": true
+   }
+  },
+  "sort": "20261117120500_5_1A_Toets zuivere stoffen pg 30-45 + ppt + alle oefeningen",
+  "unconfirmed": false,
+  "pinned": false,
+  "color": "aqua-200",
+  "joinIds": {
+   "from": "00000000-0000-0000-0000-000000000002",
+   "to": "00000000-0000-0000-0000-000000000002"
+  },
+  "courses": [
+   {
+    "id": "00000000-0000-0000-0000-000000000003",
+    "platformId": 49,
+    "name": "Chemie",
+    "scheduleCodes": [
+     "che",
+     "chem."
+    ],
+    "icon": "schoolbord",
+    "courseCluster": {
+     "id": 20,
+     "name": "Chemie"
+    },
+    "isVisible": true
+   }
+  ],
+  "assignmentType": {
+   "id": "00000000-0000-0000-0000-000000000004",
+   "name": "Herhalingstoets",
+   "abbreviation": "HT",
+   "isVisible": true,
+   "defaultTiming": "deadline",
+   "weight": 5
+  },
+  "locations": [],
+  "attachments": [
+   {
+    "id": "00000000-0000-0000-0000-0000000000a1",
+    "fileName": "samenvatting.pdf",
+    "fileSize": 1024,
+    "mimeType": "application/pdf",
+    "visibility": {
+     "option": "always",
+     "daysAfterEnd": null
+    }
+   }
+  ],
+  "weblinks": [],
+  "deeplinks": [],
+  "partnerWeblinks": [],
+  "plannedToDos": [],
+  "publicInfo": "<p>Kennen: pg 30-45 en de oefeningen.</p>"
+ },
+ {
+  "id": "00000000-0000-0000-0000-000000000005",
+  "platformId": 49,
+  "name": "taak optica",
+  "period": {
+   "dateTimeFrom": "2026-11-23T09:15:00+01:00",
+   "dateTimeTo": "2026-11-23T10:05:00+01:00",
+   "wholeDay": false,
+   "deadline": true
+  },
+  "plannedElementType": "planned-assignments",
+  "capabilities": {
+   "canUserTrash": false,
+   "canUserRestoreFromTrash": false,
+   "canUserDelete": false,
+   "canUserEdit": false,
+   "canUserChangeAssignmentType": false,
+   "canUserChangePrivateInfo": false,
+   "canUserChangePublicInfo": false,
+   "canUserReplace": false,
+   "canUserAddReservations": false,
+   "canUserReschedule": false,
+   "canUserPin": false,
+   "canUserResolve": false,
+   "canUserChangeUserColor": true,
+   "canUserChangeUserViewMetadata": true,
+   "canUserCreateVideoCall": false,
+   "canUserSeeVideoCall": true,
+   "canUserManageVideoCall": false,
+   "canUserLinkToDo": true,
+   "canUserDuplicate": false,
+   "canUserChangeOrganisers": false,
+   "canUserChangeParticipants": false,
+   "canUserChangeParticipantGroupFilters": false,
+   "canUserChangeLabels": false,
+   "canUserChangeLocations": false,
+   "canUserSeeProperties": {
+    "id": true,
+    "platformId": true,
+    "name": true,
+    "assignmentType": true,
+    "period": true,
+    "organisers": true,
+    "participants": true,
+    "isParticipant": true,
+    "capabilities": true,
+    "plannedElementType": true,
+    "resolvedStatus": true,
+    "onlineSession": true,
+    "icon": true,
+    "courses": true,
+    "locations": true
+   }
+  },
+  "sort": "20261123091500_5_1A_taak optica",
+  "unconfirmed": false,
+  "pinned": false,
+  "color": "aqua-200",
+  "joinIds": {
+   "from": "00000000-0000-0000-0000-000000000006",
+   "to": "00000000-0000-0000-0000-000000000006"
+  },
+  "courses": [
+   {
+    "id": "00000000-0000-0000-0000-000000000007",
+    "platformId": 49,
+    "name": "Fysica",
+    "scheduleCodes": [
+     "fys",
+     "fys."
+    ],
+    "icon": "schoolbord",
+    "courseCluster": {
+     "id": 31,
+     "name": "Fysica"
+    },
+    "isVisible": true
+   }
+  ],
+  "assignmentType": {
+   "id": "00000000-0000-0000-0000-000000000008",
+   "name": "Huistaak",
+   "abbreviation": "TA",
+   "isVisible": true,
+   "defaultTiming": "deadline",
+   "weight": 2
+  },
+  "locations": [],
+  "attachments": [],
+  "weblinks": [],
+  "deeplinks": [],
+  "partnerWeblinks": [],
+  "plannedToDos": [],
+  "publicInfo": "<p>Taak  optica</p>"
+ },
+ {
+  "id": "00000000-0000-0000-0000-000000000009",
+  "platformId": 49,
+  "name": "Examens",
+  "period": {
+   "dateTimeFrom": "2026-12-02T08:00:00+01:00",
+   "dateTimeTo": "2026-12-15T08:30:00+01:00",
+   "wholeDay": true,
+   "deadline": false
+  },
+  "plannedElementType": "planned-meetings",
+  "capabilities": {
+   "canUserTrash": false,
+   "canUserRestoreFromTrash": false,
+   "canUserDelete": false,
+   "canUserEdit": false,
+   "canUserChangePublicInfo": false,
+   "canUserReplace": false,
+   "canUserReschedule": false,
+   "canUserSeeDetails": true,
+   "canUserChangeUserColor": true,
+   "canUserChangeUserViewMetadata": false,
+   "canUserChangePrivacy": false,
+   "canUserCreateVideoCall": false,
+   "canUserSeeVideoCall": true,
+   "canUserManageVideoCall": false,
+   "canUserSeeHistory": false,
+   "canUserDuplicate": false,
+   "canUserChangeLocations": false,
+   "canUserSeeProperties": {
+    "id": true,
+    "platformId": true,
+    "name": true,
+    "icon": true,
+    "period": true,
+    "calendars": true,
+    "organisers": true,
+    "repeatOptions": true,
+    "plannedElementType": true,
+    "privacy": true,
+    "inviteStatuses": true,
+    "recurrence": true,
+    "capabilities": true,
+    "onlineSession": true,
+    "locations": true
+   }
+  },
+  "sort": "20261202000000_2__Examens",
+  "unconfirmed": false,
+  "pinned": false,
+  "color": "violet-500",
+  "joinIds": {
+   "from": "00000000-0000-0000-0000-00000000000a",
+   "to": "00000000-0000-0000-0000-00000000000b"
+  },
+  "locations": [],
+  "courses": [],
+  "attachments": [],
+  "weblinks": [
+   {
+    "id": "w2",
+    "name": "Examenrooster",
+    "url": "https://school.example/rooster"
+   }
+  ],
+  "deeplinks": [],
+  "partnerWeblinks": [],
+  "plannedToDos": [],
+  "publicInfo": ""
+ },
+ {
+  "id": "00000000-0000-0000-0000-00000000000c",
+  "platformId": 49,
+  "name": "Toetsvrije week",
+  "period": {
+   "dateTimeFrom": "2026-11-26T08:00:00+01:00",
+   "dateTimeTo": "2026-12-01T08:30:00+01:00",
+   "wholeDay": true,
+   "deadline": false
+  },
+  "plannedElementType": "planned-meetings",
+  "capabilities": {
+   "canUserTrash": false,
+   "canUserRestoreFromTrash": false,
+   "canUserDelete": false,
+   "canUserEdit": false,
+   "canUserChangePublicInfo": false,
+   "canUserReplace": false,
+   "canUserReschedule": false,
+   "canUserSeeDetails": true,
+   "canUserChangeUserColor": true,
+   "canUserChangeUserViewMetadata": false,
+   "canUserChangePrivacy": false,
+   "canUserCreateVideoCall": false,
+   "canUserSeeVideoCall": true,
+   "canUserManageVideoCall": false,
+   "canUserSeeHistory": false,
+   "canUserDuplicate": false,
+   "canUserChangeLocations": false,
+   "canUserSeeProperties": {
+    "id": true,
+    "platformId": true,
+    "name": true,
+    "icon": true,
+    "period": true,
+    "calendars": true,
+    "organisers": true,
+    "repeatOptions": true,
+    "plannedElementType": true,
+    "privacy": true,
+    "inviteStatuses": true,
+    "recurrence": true,
+    "capabilities": true,
+    "onlineSession": true,
+    "locations": true
+   }
+  },
+  "sort": "20261126000000_2__Toetsvrije week",
+  "unconfirmed": false,
+  "pinned": false,
+  "color": "violet-500",
+  "joinIds": {
+   "from": "00000000-0000-0000-0000-00000000000d",
+   "to": "00000000-0000-0000-0000-00000000000e"
+  },
+  "locations": [],
+  "courses": [],
+  "attachments": [],
+  "weblinks": [],
+  "deeplinks": [],
+  "partnerWeblinks": [],
+  "plannedToDos": [],
+  "publicInfo": ""
+ },
+ {
+  "id": "00000000-0000-0000-0000-00000000000f",
+  "platformId": 49,
+  "name": "Examen",
+  "period": {
+   "dateTimeFrom": "2026-12-11T08:25:00+01:00",
+   "dateTimeTo": "2026-12-11T10:05:00+01:00",
+   "wholeDay": false,
+   "deadline": false
+  },
+  "plannedElementType": "planned-lessons",
+  "capabilities": {
+   "canUserTrash": false,
+   "canUserRestoreFromTrash": false,
+   "canUserDelete": false,
+   "canUserEdit": false,
+   "canUserChangePrivateInfo": false,
+   "canUserChangePublicInfo": false,
+   "canUserReplace": false,
+   "canUserAddReservations": false,
+   "canUserReschedule": false,
+   "canUserChangeUserColor": true,
+   "canUserChangeUserViewMetadata": true,
+   "canUserCreateVideoCall": false,
+   "canUserSeeVideoCall": true,
+   "canUserManageVideoCall": false,
+   "canUserLinkToDo": true,
+   "canUserDuplicate": false,
+   "canUserChangeOrganisers": false,
+   "canUserChangeParticipants": false,
+   "canUserChangeParticipantGroupFilters": false,
+   "canUserChangeLabels": false,
+   "canUserChangeLocations": false,
+   "canUserSeeProperties": {
+    "id": true,
+    "platformId": true,
+    "name": true,
+    "period": true,
+    "organisers": true,
+    "participants": true,
+    "isParticipant": true,
+    "capabilities": true,
+    "onlineSession": true,
+    "plannedElementType": true,
+    "icon": true,
+    "courses": true,
+    "locations": true
+   }
+  },
+  "sort": "20261211082500_4_1A_Examen",
+  "unconfirmed": false,
+  "pinned": false,
+  "color": "aqua-200",
+  "joinIds": {
+   "from": "00000000-0000-0000-0000-000000000010",
+   "to": "00000000-0000-0000-0000-000000000011"
+  },
+  "courses": [
+   {
+    "id": "00000000-0000-0000-0000-000000000012",
+    "platformId": 49,
+    "name": "Biologie",
+    "scheduleCodes": [
+     "bio"
+    ],
+    "icon": "schoolbord",
+    "courseCluster": {
+     "id": 19,
+     "name": "Biologie"
+    },
+    "isVisible": true
+   }
+  ],
+  "locations": [],
+  "attachments": [],
+  "weblinks": [],
+  "deeplinks": [],
+  "partnerWeblinks": [],
+  "plannedToDos": [],
+  "publicInfo": "<p>Leerstof: thema 1 tot 3.</p><ul><li><strong><a target=\"_blank\" rel=\"noreferrer noopener\">Oefentoets</a></strong></li></ul>"
+ },
+ {
+  "id": "00000000-0000-0000-0000-000000000013",
+  "platformId": 49,
+  "name": "Hoofdstuk 3: koningen, kloosters en krijgers: De Franken en de vroege middeleeuwen",
+  "period": {
+   "dateTimeFrom": "2026-11-13T08:25:00+01:00",
+   "dateTimeTo": "2026-11-13T09:15:00+01:00",
+   "wholeDay": false,
+   "deadline": false
+  },
+  "plannedElementType": "planned-lessons",
+  "capabilities": {
+   "canUserTrash": false,
+   "canUserRestoreFromTrash": false,
+   "canUserDelete": false,
+   "canUserEdit": false,
+   "canUserChangePrivateInfo": false,
+   "canUserChangePublicInfo": false,
+   "canUserReplace": false,
+   "canUserAddReservations": false,
+   "canUserReschedule": false,
+   "canUserChangeUserColor": true,
+   "canUserChangeUserViewMetadata": true,
+   "canUserCreateVideoCall": false,
+   "canUserSeeVideoCall": true,
+   "canUserManageVideoCall": false,
+   "canUserLinkToDo": true,
+   "canUserDuplicate": false,
+   "canUserChangeOrganisers": false,
+   "canUserChangeParticipants": false,
+   "canUserChangeParticipantGroupFilters": false,
+   "canUserChangeLabels": false,
+   "canUserChangeLocations": false,
+   "canUserSeeProperties": {
+    "id": true,
+    "platformId": true,
+    "name": true,
+    "period": true,
+    "organisers": true,
+    "participants": true,
+    "isParticipant": true,
+    "capabilities": true,
+    "onlineSession": true,
+    "plannedElementType": true,
+    "icon": true,
+    "courses": true,
+    "locations": true
+   }
+  },
+  "sort": "20261113082500_4_1A_Hoofdstuk 3: koningen, kloosters en krijgers: De Franken en de vroege middeleeuwen",
+  "unconfirmed": false,
+  "pinned": false,
+  "color": "aqua-200",
+  "joinIds": {
+   "from": "00000000-0000-0000-0000-000000000014",
+   "to": "00000000-0000-0000-0000-000000000015"
+  },
+  "courses": [
+   {
+    "id": "00000000-0000-0000-0000-000000000016",
+    "platformId": 49,
+    "name": "Geschiedenis",
+    "scheduleCodes": [
+     "ges",
+     "Gesch",
+     "gesch."
+    ],
+    "icon": "schoolbord",
+    "courseCluster": {
+     "id": 33,
+     "name": "Geschiedenis"
+    },
+    "isVisible": true
+   }
+  ],
+  "locations": [],
+  "attachments": [],
+  "weblinks": [],
+  "deeplinks": [],
+  "partnerWeblinks": [],
+  "plannedToDos": [],
+  "publicInfo": ""
+ },
+ {
+  "id": "00000000-0000-0000-0000-000000000017",
+  "platformId": 49,
+  "period": {
+   "dateTimeFrom": "2026-11-04T11:10:00+01:00",
+   "dateTimeTo": "2026-11-04T12:00:00+01:00",
+   "wholeDay": false,
+   "deadline": false
+  },
+  "plannedElementType": "planned-placeholders",
+  "capabilities": {
+   "canUserAddReservations": false,
+   "canUserTrash": false,
+   "canUserRestoreFromTrash": false,
+   "canUserDelete": false,
+   "canUserEdit": false,
+   "canUserReplace": false,
+   "canUserReschedule": false,
+   "canUserChangeOrganisers": false,
+   "canUserChangeParticipants": false,
+   "canUserChangeParticipantGroupFilters": false,
+   "canUserChangeCourses": false,
+   "canUserChangeCourseLinks": false,
+   "canUserChangeLabels": false,
+   "canUserChangeLocations": false,
+   "canUserChangeUserColor": true,
+   "canUserChangeUserViewMetadata": true,
+   "canUserCreateVideoCall": false,
+   "canUserSeeVideoCall": true,
+   "canUserManageVideoCall": false,
+   "canUserLinkToDo": false,
+   "canUserDuplicate": false,
+   "canUserSeeProperties": {
+    "id": true,
+    "platformId": true,
+    "period": true,
+    "organisers": true,
+    "participants": true,
+    "plannedElementType": true,
+    "isParticipant": true,
+    "capabilities": true,
+    "onlineSession": true,
+    "courses": true,
+    "locations": true
+   }
+  },
+  "sort": "20261104111000_8_1A_",
+  "unconfirmed": false,
+  "pinned": false,
+  "color": "aqua-200",
+  "joinIds": {
+   "from": "00000000-0000-0000-0000-000000000018",
+   "to": "00000000-0000-0000-0000-000000000019"
+  },
+  "courses": [
+   {
+    "id": "00000000-0000-0000-0000-00000000001a",
+    "platformId": 49,
+    "name": "Nederlands",
+    "scheduleCodes": [
+     "ned"
+    ],
+    "icon": "schoolbord",
+    "courseCluster": {
+     "id": 48,
+     "name": "Nederlands"
+    },
+    "isVisible": true
+   }
+  ],
+  "locations": []
+ },
+ {
+  "id": "00000000-0000-0000-0000-00000000001b",
+  "platformId": 49,
+  "name": "Kerstvakantie",
+  "period": {
+   "dateTimeFrom": "2026-12-21T08:00:00+01:00",
+   "dateTimeTo": "2027-01-03T08:30:00+01:00",
+   "wholeDay": true,
+   "deadline": false
+  },
+  "plannedElementType": "planned-lesson-free-days",
+  "capabilities": {
+   "canUserTrash": false,
+   "canUserRestoreFromTrash": false,
+   "canUserDelete": false,
+   "canUserEdit": false,
+   "canUserChangePublicInfo": false,
+   "canUserReplace": false,
+   "canUserReschedule": false,
+   "canUserChangeUserColor": true,
+   "canUserChangeUserViewMetadata": false,
+   "canUserLinkToDo": false,
+   "canUserDuplicate": false,
+   "canUserChangeParticipants": false,
+   "canUserSeeProperties": {
+    "id": true,
+    "platformId": true,
+    "name": true,
+    "icon": true,
+    "participants": true,
+    "period": true,
+    "plannedElementType": true,
+    "capabilities": true
+   }
+  },
+  "sort": "20261221000000_0_Iedereen_Kerstvakantie",
+  "unconfirmed": false,
+  "pinned": false,
+  "color": "mint-200",
+  "joinIds": {
+   "from": "00000000-0000-0000-0000-00000000001c",
+   "to": "00000000-0000-0000-0000-00000000001d"
+  },
+  "courses": [],
+  "locations": [],
+  "attachments": [],
+  "weblinks": [],
+  "deeplinks": [],
+  "partnerWeblinks": [],
+  "plannedToDos": [],
+  "publicInfo": ""
+ },
+ {
+  "id": "00000000-0000-0000-0000-00000000001e",
+  "platformId": 49,
+  "name": "Toets zuivere stoffen pg 30-45 + ppt + alle oefeningen",
+  "period": {
+   "dateTimeFrom": "2026-11-17T12:05:00+01:00",
+   "dateTimeTo": "2026-11-17T12:55:00+01:00",
+   "wholeDay": false,
+   "deadline": true
+  },
+  "plannedElementType": "planned-lessons",
+  "capabilities": {
+   "canUserTrash": false,
+   "canUserRestoreFromTrash": false,
+   "canUserDelete": false,
+   "canUserEdit": false,
+   "canUserChangePrivateInfo": false,
+   "canUserChangePublicInfo": false,
+   "canUserReplace": false,
+   "canUserAddReservations": false,
+   "canUserReschedule": false,
+   "canUserChangeUserColor": true,
+   "canUserChangeUserViewMetadata": true,
+   "canUserCreateVideoCall": false,
+   "canUserSeeVideoCall": true,
+   "canUserManageVideoCall": false,
+   "canUserLinkToDo": true,
+   "canUserDuplicate": false,
+   "canUserChangeOrganisers": false,
+   "canUserChangeParticipants": false,
+   "canUserChangeParticipantGroupFilters": false,
+   "canUserChangeLabels": false,
+   "canUserChangeLocations": false,
+   "canUserSeeProperties": {
+    "id": true,
+    "platformId": true,
+    "name": true,
+    "period": true,
+    "organisers": true,
+    "participants": true,
+    "isParticipant": true,
+    "capabilities": true,
+    "onlineSession": true,
+    "plannedElementType": true,
+    "icon": true,
+    "courses": true,
+    "locations": true
+   }
+  },
+  "sort": "20261113082500_4_1A_Hoofdstuk 3: koningen, kloosters en krijgers: De Franken en de vroege middeleeuwen",
+  "unconfirmed": false,
+  "pinned": false,
+  "color": "aqua-200",
+  "joinIds": {
+   "from": "00000000-0000-0000-0000-000000000014",
+   "to": "00000000-0000-0000-0000-000000000015"
+  },
+  "courses": [
+   {
+    "id": "00000000-0000-0000-0000-000000000003",
+    "platformId": 49,
+    "name": "Chemie",
+    "scheduleCodes": [
+     "che",
+     "chem."
+    ],
+    "icon": "schoolbord",
+    "courseCluster": {
+     "id": 20,
+     "name": "Chemie"
+    },
+    "isVisible": true
+   }
+  ],
+  "locations": [],
+  "attachments": [],
+  "weblinks": [],
+  "deeplinks": [],
+  "partnerWeblinks": [],
+  "plannedToDos": [],
+  "publicInfo": ""
+ }
+]

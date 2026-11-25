@@ -38,7 +38,7 @@ CI runs lint → typecheck → tests (Python 3.10–3.13) in that order. All thr
 
 The package is a single-file MCP server (`smartschool_mcp/server.py`) plus entry-point modules:
 
-- **`server.py`** — all MCP tool definitions with `@_tool` decorators (a threaded `mcp.tool()` wrapper); uses `FastMCP("Smartschool MCP")` as the server instance
+- **`server.py`** — all MCP tool definitions with `@mcp.tool()` decorators; uses `MCPServer("Smartschool MCP")` as the server instance
 - **`__main__.py`** — CLI entry point handling transport selection (stdio vs streamable-http)
 - **`auth.py`** — OAuth 2.1 provider for universal mode (multi-user)
 - **`main.py`** — backward-compatibility shim (deprecated)
@@ -78,7 +78,7 @@ The upstream library (`github.com/svaningelgem/smartschool`, pinned via `uv.lock
 
 1. Find the corresponding class in the [smartschool library](https://github.com/svaningelgem/smartschool)
 2. Add the import to `server.py`
-3. Decorate with `@_tool` (registers it with `mcp`, runs it in a worker thread) and call `_session()` inside the function body
+3. Decorate with `@mcp.tool()` and call `_session()` inside the function body
 4. Wrap the entire body in `try / except Exception as e` and return `{"error": f"Failed to ...: {e}"}` (or `[{"error": ...}]` for list returns)
 5. Use built-in generics (`list[dict[str, Any]]`, `str | None`) — not `typing.List` / `typing.Optional`
 6. Add tests in `tests/test_tools.py`
@@ -86,18 +86,16 @@ The upstream library (`github.com/svaningelgem/smartschool`, pinned via `uv.lock
 
 ## Testing conventions
 
-Tests never hit the network unless `PORTAL_SMOKE=1` and `@pytest.mark.integration`. The `autouse` `mock_session` fixture in `conftest.py` patches `_session` (skipped for integration tests). CI runs `pytest -m "not integration"`.
+Tests never hit the network. The `autouse` `mock_session` fixture in `conftest.py` patches `_session`. Three test files:
 
 - **`test_helpers.py`** — pure unit tests for `_safe_format_date` and `_safe_get_teacher_names`
 - **`test_middleware.py`** — async tests for `_BearerAuthMiddleware` (valid/invalid tokens, OPTIONS bypass, non-HTTP scopes)
 - **`test_tools.py`** — error-handling tests (every tool must catch exceptions) and happy-path tests using `MagicMock` return values
-- **`test_portal_smoke_plan.py`** — catalog classifier for `scripts/smoke_portal.py` (no network)
-- **`test_portal_smoke.py`** — live catalog smoke via the CLI script
 
 ### Writing tests
 
 - All tests run without real credentials — use the `mock_session` fixture from `conftest.py`
-- Mark any test that needs real credentials with `@pytest.mark.integration` and also require `PORTAL_SMOKE=1`
+- Mark any test that needs real credentials with `@pytest.mark.integration`
 - Test **error paths** too: patch the relevant smartschool class to raise an exception and assert the returned `{"error": "..."}` dict
 
 ## HTTP transport changes
@@ -106,14 +104,12 @@ All HTTP logic lives in `_run_http()` inside `__main__.py`. Keep uvicorn and sta
 
 ## Versioning and releases
 
-Bump `version` in these places (they must match):
-- `pyproject.toml` (then `uv lock`)
-- `manifest.json`
-- `scripts/build_mcpb.py` (`_DEFAULT_VERSION`)
+Bump `version` in three places (they must match):
+- `pyproject.toml`
 - `smartschool_mcp/__init__.py`
-- `claude-plugin/.claude-plugin/plugin.json`
+- `server.json`
 
-Distribution is the Claude Desktop `.mcpb` only — create a GitHub Release (tag `vX.Y.Z`) and `mcpb.yml` attaches `smartschool-mcp-<version>.mcpb`. Nothing goes to PyPI or the MCP Registry.
+Releases are fully automated via GitHub Actions — create a GitHub Release (tag `vX.Y.Z`) and the `publish.yml` workflow builds and publishes to PyPI + MCP Registry.
 
 ## Commit conventions
 

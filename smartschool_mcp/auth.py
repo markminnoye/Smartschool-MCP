@@ -20,13 +20,12 @@ import time
 from typing import NamedTuple
 from urllib.parse import urlparse
 
-import anyio.to_thread
-import requests
 from cachetools import TTLCache
 from mcp.server.auth.provider import (
     AccessToken,
     AuthorizationCode,
     AuthorizationParams,
+    OAuthAuthorizationServerProvider,
     RefreshToken,
     construct_redirect_uri,
 )
@@ -41,6 +40,7 @@ from smartschool_mcp.guard import (
     memory_lockout_active,
     memory_lockout_message,
 )
+from smartschool_mcp.settings import SettingsError, verification_answer
 
 _logger = logging.getLogger(__name__)
 
@@ -144,6 +144,10 @@ class _PendingAuth(NamedTuple):
 # Public helper for server.py
 # ---------------------------------------------------------------------------
 
+# Module-level credential store; populated by SmartschoolOAuthProvider.
+# 1-hour TTL, max 256 entries — mirrors the session cache in server.py.
+_credential_store: TTLCache[str, AppCredentials] = TTLCache(maxsize=256, ttl=3600)
+
 
 def get_credentials(cred_key: str) -> AppCredentials | None:
     """Look up Smartschool credentials by key (used by ``server._session()``)."""
@@ -161,20 +165,16 @@ _ACCESS_TOKEN_TTL = 3600  # 1 hour
 _REFRESH_TOKEN_TTL = 86400  # 24 hours
 _PENDING_AUTH_TTL = 600  # 10 minutes
 
-# Module-level credential store; populated by the login form.
-# Entries live as long as a refresh token, so a client that refreshes after
-# a quiet hour still finds the login. Each refresh resets the timer.
-# Max 256 entries — mirrors the session cache in server.py.
-_credential_store: TTLCache[str, AppCredentials] = TTLCache(
-    maxsize=256, ttl=_REFRESH_TOKEN_TTL
-)
 
-
-class SmartschoolOAuthProvider:
+class SmartschoolOAuthProvider(
+    OAuthAuthorizationServerProvider[
+        SmartschoolAuthCode, SmartschoolRefreshToken, SmartschoolAccessToken
+    ]
+):
     """In-memory OAuth 2.1 authorization server for Smartschool MCP.
 
     Implements the ``OAuthAuthorizationServerProvider`` protocol expected by
-    FastMCP.  All state lives in TTL-bounded caches so stale entries are
+    MCPServer.  All state lives in TTL-bounded caches so stale entries are
     automatically evicted.
     """
 
@@ -353,9 +353,6 @@ class SmartschoolOAuthProvider:
             self._access_tokens.pop(token.token, None)
         elif isinstance(token, SmartschoolRefreshToken):
             self._refresh_tokens.pop(token.token, None)
-            # The client disconnected: forget the stored password now
-            # instead of keeping it until the TTL runs out.
-            _credential_store.pop(token.cred_key, None)
 
     # -- Login form helpers (used by route handlers) ------------------------
 
@@ -523,17 +520,6 @@ async def _handle_login_get(
     return _render_login_form(pending_id)
 
 
-def _verify_login(creds: AppCredentials) -> None:
-    """Log in once and load a page, so bad credentials raise here.
-
-    The login form is public, so a rejected password blocks that username
-    for a while in memory (``MemoryGuardedSession``), not with a file that
-    only an admin can remove.
-    """
-    session = MemoryGuardedSession(creds)
-    session.get("/?module=Messages&file=messageOverview")
-
-
 async def _handle_login_post(
     request: Request,
     provider: SmartschoolOAuthProvider,
@@ -573,6 +559,8 @@ async def _handle_login_post(
             mfa=mfa,
         )
 
+    # A password Smartschool rejected a moment ago is not tried again: the
+    # form is public, and repeated failures lock the real account.
     if memory_lockout_active(username, school):
         return _render_login_form(
             pending_id,
@@ -582,25 +570,36 @@ async def _handle_login_post(
             mfa=mfa,
         )
 
-    # Validate credentials by attempting a Smartschool login.
-    # A rejected password blocks this username for a while (in memory).
+    # A typo in the birth date must not cost a Smartschool login attempt.
+    try:
+        answer = verification_answer(mfa)
+    except SettingsError:
+        return _render_login_form(
+            pending_id,
+            error="Birth date must be dd-mm-yyyy (or enter your 2FA secret).",
+            school=school_raw,
+            username=username,
+            mfa=mfa,
+        )
+
+    # Validate credentials by attempting a Smartschool login
     creds = AppCredentials(
-        username=username, password=password, main_url=school, mfa=mfa
+        username=username, password=password, main_url=school, mfa=answer
     )
     try:
-        # Blocking HTTP to Smartschool: run it in a worker thread so the
-        # event loop keeps serving other users while this login is checked.
-        await anyio.to_thread.run_sync(_verify_login, creds)
-    except Exception as exc:
+        session = MemoryGuardedSession(creds)
+        # Force an actual request to verify the credentials work
+        session.get("/?module=Messages&file=messageOverview")
+    except Exception:
         _logger.debug(
             "Smartschool login failed for user=%s school=%s", username, school
         )
-        if memory_lockout_active(username, school):
-            error = memory_lockout_message()
-        elif isinstance(exc, requests.RequestException):
-            error = "Could not reach Smartschool. Please try again later."
-        else:
-            error = "Login failed — check your school URL, username, and password."
+        # The guard remembers a rejected password; say how long it waits.
+        error = (
+            memory_lockout_message()
+            if memory_lockout_active(username, school)
+            else "Login failed — check your school URL, username, and password."
+        )
         return _render_login_form(
             pending_id,
             error=error,
