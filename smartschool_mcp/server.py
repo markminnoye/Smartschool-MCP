@@ -42,13 +42,10 @@ from smartschool import (
     TopNavCourses,
 )
 
-from smartschool_mcp import children, content
+from smartschool_mcp import __version__, children, content, prompts
 from smartschool_mcp.guard import GuardedSession, MemoryGuardedSession
-from smartschool_mcp.settings import env_credentials
-from smartschool_mcp import content
 from smartschool_mcp.result_feedback import relax_feedback_attachments
-from smartschool_mcp import content, prompts
-from smartschool_mcp import __version__, content
+from smartschool_mcp.settings import env_credentials
 
 FastMCP = MCPServer  # Backward compatibility alias
 
