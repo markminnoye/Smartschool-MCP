@@ -61,3 +61,11 @@ def test_prompt_is_read_only(name: str) -> None:
 
     assert "Alleen lezen" in text
     assert "Log nooit zelf in" in text
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_prompt_drops_empty_sections_entirely(name: str) -> None:
+    """A heading with "Geen taken" under it is noise on a phone screen."""
+    text = prompts.BRIEFINGS[name]
+
+    assert "zonder inhoud laat je volledig weg" in text.lower()

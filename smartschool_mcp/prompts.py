@@ -31,12 +31,14 @@ Data ophalen:
 
 Geen schooldag en niets urgents? Maak dan geen briefing.
 
-Opmaak (Nederlands, geen nummering, lege onderdelen weglaten, max. ongeveer één telefoonscherm):
+Opmaak (Nederlands, geen nummering, max. ongeveer één telefoonscherm):
 - Bovenaan: datum + de allerbelangrijkste zaak van vanochtend.
 - Vandaag: meenemen, staking/vrije dag, toets vandaag, acties die vandaag geld of materiaal vragen.
 - Vanavond te doen: studeren/taken met deadline morgen of overmorgen; toetsen als **Toets [vak] – [naam/onderwerp]**, met de leerstof letterlijk uit description. Pas als description én bijlagen leeg zijn: nagaan waar de leerstof staat.
 - Rest van de week: stakingen/vrije dagen in vet, toetsen met datum en de leerstof in een halve zin, meenemen, oudercontact.
 - Varia: mededelingen, betalingen, strooibriefjes; nieuwe punten (met korte feedback) en een nieuw rapport.
+
+Een onderdeel zonder inhoud laat je volledig weg: geen kop en geen regel als "geen taken" of "niets gepland".
 
 Geen lesuren of lokalen tenzij nodig. Lever alleen in de chat."""
 
@@ -53,12 +55,14 @@ Data ophalen:
 
 Doel: overzicht van de komende schoolweek, geen ochtend-standup.
 
-Opmaak (Nederlands, geen nummering, lege onderdelen weglaten):
+Opmaak (Nederlands, geen nummering):
 - Bovenaan: weekbereik + één zin met het zwaartepunt.
 - Deze week: toetsen en deadlines per dag (vak + naam/onderwerp + datum + leerstof letterlijk uit description), chronologisch. Pas als description én bijlagen leeg zijn: nagaan waar de leerstof staat.
 - Meebrengen & acties: kledij, materiaal, geld, strooibriefjes, inschrijvingen, oudercontact — met de dag.
 - Aandacht / berichten: schoolberichten die deze week nog spelen.
 - Punten: alleen nieuwe of opvallende resultaten, met korte feedback, en een nieuw rapport zonder inhoud.
+
+Een onderdeel zonder inhoud laat je volledig weg: geen kop en geen regel als "geen taken" of "niets gepland".
 
 Vet voor stakingen, vrije dagen en toetsen. Geen complete lesurenlijst. Lever alleen in de chat."""
 
