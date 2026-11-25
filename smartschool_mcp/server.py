@@ -48,11 +48,13 @@ from smartschool_mcp.settings import env_credentials
 from smartschool_mcp import content
 from smartschool_mcp.result_feedback import relax_feedback_attachments
 from smartschool_mcp import content, prompts
+from smartschool_mcp import __version__, content
 
 FastMCP = MCPServer  # Backward compatibility alias
 
 # MCP server - tools are registered via @mcp.tool() decorators below
-mcp = MCPServer("Smartschool MCP")
+# The version shows up in the client's server info, so users can tell builds apart.
+mcp = MCPServer("Smartschool MCP", version=__version__)
 
 # Some schools send feedback attachments as objects; see result_feedback.py.
 relax_feedback_attachments()
