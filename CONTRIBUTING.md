@@ -121,6 +121,8 @@ tests/
    `typing.List` / `typing.Optional`.
 6. Add tests in `tests/test_tools.py`.
 7. Update `CHANGELOG.md` and the `README.md` features section.
+8. Add the tool to `tools` in `manifest.json` (the Claude Desktop extension);
+   `tests/test_mcpb_bundle.py` fails until it is listed there.
 
 ### Changing the HTTP transport
 

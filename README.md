@@ -39,6 +39,10 @@ Connect Claude (and other MCP clients) to your Smartschool account — ask about
 
 ## Quick start — Claude Desktop
 
+The easiest way: download `smartschool-mcp-<version>.mcpb` from the latest [GitHub Release](https://github.com/MauroDruwel/Smartschool-MCP/releases), open it with Claude Desktop and fill in your school address, username, password and verification answer. Claude Desktop needs [uv](https://docs.astral.sh/uv/) on your computer to run it.
+
+Or install it from PyPI:
+
 ```bash
 uvx mcp install smartschool-mcp \
   -e SMARTSCHOOL_USERNAME="you" \
