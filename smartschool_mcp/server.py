@@ -45,11 +45,16 @@ from smartschool import (
 from smartschool_mcp import children, content
 from smartschool_mcp.guard import GuardedSession, MemoryGuardedSession
 from smartschool_mcp.settings import env_credentials
+from smartschool_mcp import content
+from smartschool_mcp.result_feedback import relax_feedback_attachments
 
 FastMCP = MCPServer  # Backward compatibility alias
 
 # MCP server - tools are registered via @mcp.tool() decorators below
 mcp = MCPServer("Smartschool MCP")
+
+# Some schools send feedback attachments as objects; see result_feedback.py.
+relax_feedback_attachments()
 
 
 class AuthenticationError(RuntimeError):
@@ -259,6 +264,14 @@ def get_courses() -> list[dict[str, Any]]:
         return [{"error": f"Failed to retrieve courses: {e!s}"}]
 
 
+def _feedback_attachment_ids(result: Any) -> list[str]:
+    """Ids of the files teachers attached to a result's feedback."""
+    ids: list[str] = []
+    for feedback in getattr(result, "feedbacks", None) or []:
+        ids.extend(str(i) for i in getattr(feedback, "attachments", None) or [])
+    return ids
+
+
 @mcp.tool()
 def get_results(
     limit: int = 15,
@@ -321,6 +334,7 @@ def get_results(
                 "published_date": _safe_format_date(result.availability_date),
                 "counts": result.does_count,
                 "feedback": result.feedback[0].text if result.feedback else "",
+                "feedback_attachment_ids": _feedback_attachment_ids(result),
             }
 
             # Fetch central tendencies (average/median) only when requested
