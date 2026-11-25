@@ -111,6 +111,8 @@ tests/
 
 1. Find the corresponding class in the
    [smartschool library](https://github.com/svaningelgem/smartschool).
+   [`docs/portal-api/`](docs/portal-api/README.md) maps the website's calls to
+   library classes and existing tools.
 2. Add the import to `server.py`.
 3. Decorate with `@mcp.tool()` and call `_session()` inside the function body.
 4. Wrap the entire body in `try / except Exception as e` and return
