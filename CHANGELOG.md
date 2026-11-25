@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Prompts `ochtendbriefing` and `weekbriefing`: a short Dutch morning stand-up and week overview built from the planner (with study material and attachments), timetable, messages, new results and reports. Read-only; also listed in the Claude Desktop extension's `manifest.json`
 - Claude Desktop extension: every published release gets a `smartschool-mcp-<version>.mcpb` asset, built by the new `mcpb.yml` workflow next to the PyPI release. `scripts/build_mcpb.py` bundles the package with the repo's own `pyproject.toml` and `uv.lock`; `manifest.json` lists the tools, and a test keeps that list in step with the server
 - `get_student_notes(limit?, offset?, category?, since?, include_details?)` — student file notes ("dossierlijnen", Leerlingvolgsysteem); confidential notes are never returned, details only on request. With `include_details`, each note's `details` holds `text` (plain text), `fields`, `date`, `choice` (the label of the note's select field, e.g. the measure of an order measure) and `attachments` (a list of `{name, mime}`)
 - `get_student_absences(since?)` — absences recorded in the Leerlingvolgsysteem (`part_of_day` is `null` when not specified)

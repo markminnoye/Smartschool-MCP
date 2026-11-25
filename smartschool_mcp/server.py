@@ -43,12 +43,22 @@ from smartschool import (
     TopNavCourses,
 )
 
-from smartschool_mcp import content
+from smartschool_mcp import content, prompts
 
 FastMCP = MCPServer  # Backward compatibility alias
 
 # MCP server - tools are registered via @mcp.tool() decorators below
 mcp = MCPServer("Smartschool MCP")
+
+
+@mcp.prompt(description=prompts.DESCRIPTIONS["ochtendbriefing"])
+def ochtendbriefing() -> str:
+    return prompts.OCHTENDBRIEFING
+
+
+@mcp.prompt(description=prompts.DESCRIPTIONS["weekbriefing"])
+def weekbriefing() -> str:
+    return prompts.WEEKBRIEFING
 
 
 class AuthenticationError(RuntimeError):
