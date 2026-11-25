@@ -1045,7 +1045,7 @@ def test_switch_child_does_not_submit_password_on_foreign_login(
     )
 
 
-def test_switch_child_blocks_when_foreign_verification_stays_on_auth(
+def test_switch_child_asks_for_birth_date_on_foreign_verification(
     mock_session: MagicMock,
 ) -> None:
     gotourl = MagicMock(
@@ -1094,16 +1094,13 @@ def test_switch_child_blocks_when_foreign_verification_stays_on_auth(
     result = srv.switch_child("222")
 
     assert result["ok"] is False
-    assert "password" in result["error"]
+    assert "birth date" in result["error"]
     fetched = [str(call.args[0]) for call in mock_session.get.call_args_list]
-    assert any("account-verification" in url for url in fetched)
+    # The other school's page never goes through the guarded session, so
+    # nothing is posted there and no lock can be written.
+    assert not any("account-verification" in url for url in fetched)
     assert not any(srv._url_is_login(url) for url in fetched)
     assert mock_session.creds.main_url == "school.smartschool.be"
-    assert any(
-        call.kwargs.get("allow_redirects") is True
-        and "account-verification" in str(call.args[0])
-        for call in mock_session.get.call_args_list
-    )
 
 
 # ── Happy-path: verify tool processes library objects correctly ───────────────

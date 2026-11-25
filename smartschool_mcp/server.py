@@ -11,7 +11,6 @@ import os
 import re
 import threading
 from collections.abc import Callable
-from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -22,6 +21,7 @@ import anyio
 import anyio.to_thread
 from cachetools import TTLCache, cached
 from mcp.server.fastmcp import FastMCP
+from smartschool._common import fill_form
 from smartschool import (
     AppCredentials,
     Attachments,
@@ -49,7 +49,10 @@ from smartschool_mcp.credentials import (
     CredentialMixError,
     CredentialStoreError,
     MissingCredentialsError,
+    load_profiles,
+    normalize_birth_date,
     prepare_server_credentials,
+    save_child_birth_date,
 )
 from smartschool_mcp.filenames import filename_from_response, header_value
 from smartschool_mcp.guard import (
@@ -722,28 +725,81 @@ def _foreign_hop_get(session: Smartschool, url: str, origin_host: str) -> Any:
     return session.get(url, allow_redirects=False)
 
 
-def _refuse_password_login(*_args: Any, **_kwargs: Any) -> Any:
-    raise RuntimeError("refusing foreign password login")
+def _path_is(url: str, segment: str) -> bool:
+    return segment in set(urlparse(url).path.split("/"))
 
 
-def _refuse_foreign_2fa(*_args: Any, **_kwargs: Any) -> Any:
-    raise RuntimeError("refusing foreign 2fa")
+def _post_child_verification(
+    session: Smartschool, url: str, origin_host: str, birth_date: str
+) -> Any:
+    """Answer another school's "birth date of the child" question, once.
+
+    The other school asks for the birth date of the child being switched to.
+    The answer is posted with a raw request: no password, no TOTP, and no
+    ``GuardedSession`` bookkeeping, so a wrong date can neither re-post the
+    login nor write an ``auth_failed`` lock for a password that was never sent.
+    """
+    page = _foreign_hop_get(session, url, origin_host)
+    data = fill_form(
+        page,
+        'form[name="account_verification_form"]',
+        {"security_question_answer": birth_date},
+    )
+    headers = dict(_BROWSER_NAV_HEADERS)
+    headers["Referer"] = url
+    response = _raw_session_request(
+        session, "POST", url, data=data, allow_redirects=True, headers=headers
+    )
+    if response is None:
+        raise RuntimeError("no raw HTTP session available for account verification")
+    return response
 
 
-@contextmanager
-def _without_password_or_2fa(session: Smartschool):
-    """Let account-verification run; block /login POST and TOTP."""
-    original_login = getattr(session, "_do_login", None)
-    original_2fa = getattr(session, "_complete_verification_2fa", None)
-    session._do_login = _refuse_password_login  # type: ignore[method-assign]
-    session._complete_verification_2fa = _refuse_foreign_2fa  # type: ignore[method-assign]
+def _clear_stale_lock(session: Smartschool) -> None:
+    """Drop an ``auth_failed`` lock the current host got from a failed switch.
+
+    Older versions posted the wrong child's birth date to the other school and
+    locked that school's profile for it. No password was ever sent there, and
+    the verification just succeeded, so the lock is stale and would otherwise
+    refuse every call on this host.
+    """
+    creds = getattr(session, "creds", None)
+    username = getattr(creds, "username", None)
+    main_url = getattr(creds, "main_url", None)
+    if not username or not main_url:
+        return
     try:
-        yield
-    finally:
-        if original_login is not None:
-            session._do_login = original_login  # type: ignore[method-assign]
-        if original_2fa is not None:
-            session._complete_verification_2fa = original_2fa  # type: ignore[method-assign]
+        auth_failed_path(username, main_url).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _child_name_for(account_id: str) -> str | None:
+    """Name of a linked child, as ``get_children`` lists it."""
+    try:
+        for child in get_children().get("children") or []:
+            if child.get("account_id") == account_id:
+                return child.get("first_name") or child.get("name")
+    except Exception:
+        return None
+    return None
+
+
+def _stored_child_birth_date(session: Smartschool, account_id: str) -> str | None:
+    """Birth date kept for this child in ``credentials.json`` (``children[]``)."""
+    username = getattr(getattr(session, "creds", None), "username", None)
+    if not isinstance(username, str) or not username:
+        return None
+    try:
+        for profile in load_profiles():
+            if profile.get("username") != username:
+                continue
+            for child in profile.get("children") or []:
+                if child.get("account_id") == account_id and child.get("birth_date"):
+                    return str(child["birth_date"])
+    except Exception:
+        return None
+    return None
 
 
 def _retarget_session_host(session: Smartschool, url: str) -> str | None:
@@ -760,6 +816,7 @@ def _retarget_session_host(session: Smartschool, url: str) -> str | None:
     creds = getattr(session, "creds", None)
     if creds is None or not hasattr(creds, "main_url"):
         return new_host
+    session.__dict__.setdefault("_home_host", current_host)
     object.__setattr__(creds, "main_url", new_host)
     session.__dict__.pop("_url", None)
     session.__dict__.pop("platform_id", None)
@@ -784,7 +841,7 @@ def _redirect_location(response: Any) -> str | None:
 
 
 def _follow_child_switch_redirects(
-    session: Smartschool, start_path: str
+    session: Smartschool, start_path: str, birth_date: str | None = None
 ) -> tuple[Any, str | None, str | None]:
     """Follow gotourl hops without replaying the original host after OTP/auth.
 
@@ -795,8 +852,11 @@ def _follow_child_switch_redirects(
     Never GET another school's ``/login`` through ``session.get``:
     ``Smartschool.request`` POSTs this session's username/password on any
     login form. Foreign hops (``/otp/...``, then relative ``/Studentcard``)
-    use a raw GET with browser navigation headers. Foreign
-    ``account-verification`` is allowed with password login and TOTP disabled.
+    use a raw GET with browser navigation headers. A foreign
+    ``account-verification`` asks for the birth date of the child being
+    switched to: it is answered once with ``birth_date`` through a raw POST,
+    never with this login's password or TOTP. Without a ``birth_date`` nothing
+    is posted. Any other foreign auth page stops the switch.
     """
     origin_host = urlparse(session.create_url("/")).netloc
     url: str = start_path
@@ -807,18 +867,24 @@ def _follow_child_switch_redirects(
             return response, switched_host, url
         if _is_foreign_host(url, origin_host) and _url_is_auth(url):
             switched_host = _retarget_session_host(session, url) or switched_host
+            answer = birth_date
+            if not answer and urlparse(url).netloc == session.__dict__.get(
+                "_home_host"
+            ):
+                # Back on the school this login belongs to: its own ``mfa``.
+                answer = getattr(getattr(session, "creds", None), "mfa", None)
+            if not _path_is(url, "account-verification") or not answer:
+                return response, switched_host, url
             try:
-                with _without_password_or_2fa(session):
-                    response = session.get(url, allow_redirects=True)
+                response = _post_child_verification(session, url, origin_host, answer)
             except Exception:
                 return response, switched_host, url
-            switched_host = (
-                _retarget_session_host(session, getattr(response, "url", "") or url)
-                or switched_host
-            )
             landing = str(getattr(response, "url", "") or url)
-            blocked = landing if _url_is_auth(landing) else None
-            return response, switched_host, blocked
+            if _url_is_auth(landing):
+                return response, switched_host, landing
+            _clear_stale_lock(session)
+            session.__dict__["_verified_birth"] = answer
+            return response, switched_host, None
         if _is_foreign_host(url, origin_host):
             response = _foreign_hop_get(session, url, origin_host)
         else:
@@ -2305,6 +2371,14 @@ def get_children() -> dict[str, Any]:
     and messages the other tools return. One login does not merge every
     child automatically — the session stays on the currently selected child.
 
+    When the user asks for a child that is not in ``children``, that child is
+    not linked on Mijn kinderen, so switch_child cannot reach them. Do not
+    guess an id. Tell the user the child is not linked on Mijn kinderen and
+    cannot be read from this login. Do not ask for a school, url, username or
+    password: a separate login is not supported yet.
+    A listed child on another school needs no school or url from the user:
+    switch_child follows the link, and asks only for the child's birth date.
+
     Returns:
         Dictionary with ``children``, ``current`` (the active session user),
         and ``total``.
@@ -2341,36 +2415,56 @@ def get_children() -> dict[str, Any]:
 
 
 @_tool
-def switch_child(account_id: str) -> dict[str, Any]:
+def switch_child(account_id: str, birth_date: str | None = None) -> dict[str, Any]:
     """
     Switch the session to another linked child (Mijn kinderen).
 
     Same portal call as the website: GET
     /Studentcard/Chain/gotourl/accountID/{accountId}. A child on another
     platform (e.g. De Ring) 302s to a one-time ``/otp/...`` URL; that hop is
-    followed without replaying the original host. After a successful switch,
+    followed without replaying the original host. That school then asks for
+    the birth date of the child you switch to; it is answered once with
+    ``birth_date`` or the one stored for that child in ``credentials.json``
+    (``children[].birth_date``). After a successful switch,
     get_schedule / get_planned_elements / get_results follow the newly
     selected child. Get account_id from get_children.
 
     Args:
         account_id: Linked-account id from get_children (not the Planner
             user id). Digits, letters, underscore, and hyphen only.
+        birth_date: Birth date of that child, ``YYYY-MM-DD``. Only needed for a
+            child on another school platform that has none stored.
 
     Returns:
         Dictionary with the new ``current`` user, optional ``switched_host``
-        when the chain landed on another school platform, and ``ok``.
+        when the chain landed on another school platform, and ``ok``. A
+        ``birth_date`` the other school accepted is stored for that child
+        (``saved_birth_date``), so it is only asked for once.
     """
     try:
         safe_id = _safe_account_id(account_id)
         if safe_id is None:
             return {"error": "Invalid account_id"}
+        child_birth: str | None = None
+        if birth_date:
+            try:
+                child_birth = normalize_birth_date(birth_date)
+            except CredentialStoreError:
+                return {"error": "birth_date must be YYYY-MM-DD, e.g. 2014-03-21"}
 
         session = _session()
         session.ensure_authenticated()
         origin_host = urlparse(session.create_url("/")).netloc
         path = f"/Studentcard/Chain/gotourl/accountID/{safe_id}"
+        stored_birth = _stored_child_birth_date(session, safe_id)
+        # Remember a date the other school accepted, once. The child's name is
+        # read now, while the session is still on the school it belongs to.
+        new_birth = child_birth if child_birth and child_birth != stored_birth else None
+        child_name = _child_name_for(safe_id) if new_birth else None
+        child_birth = child_birth or stored_birth
+        session.__dict__.pop("_verified_birth", None)
         response, switched_host, blocked_login = _follow_child_switch_redirects(
-            session, path
+            session, path, child_birth
         )
         if response is None and not blocked_login:
             return {"error": "Child switch failed: empty response"}
@@ -2394,12 +2488,27 @@ def switch_child(account_id: str) -> dict[str, Any]:
                 if _url_is_login(blocked_login or landing)
                 else "authentication page"
             )
+            error = (
+                f"Child switch landed on the other school's {auth_kind}; "
+                "not submitting this account's password there"
+            )
+            if _path_is(blocked_login or landing, "account-verification"):
+                if child_birth:
+                    error = (
+                        "The other school did not accept the birth date for "
+                        "this child. Nothing else was sent; check the date and "
+                        "try again."
+                    )
+                else:
+                    error = (
+                        "The other school asks for the birth date of this "
+                        "child. Ask the user for it and call switch_child "
+                        "again with birth_date (YYYY-MM-DD); it is stored "
+                        "once accepted. Nothing was sent."
+                    )
             failed: dict[str, Any] = {
                 "ok": False,
-                "error": (
-                    f"Child switch landed on the other school's {auth_kind}; "
-                    "not submitting this account's password there"
-                ),
+                "error": error,
                 "account_id": safe_id,
             }
             if switched_host:
@@ -2422,6 +2531,16 @@ def switch_child(account_id: str) -> dict[str, Any]:
         }
         if switched_host:
             result["switched_host"] = switched_host
+        if new_birth and session.__dict__.get("_verified_birth") == new_birth:
+            try:
+                result["saved_birth_date"] = save_child_birth_date(
+                    str(session.creds.username),
+                    safe_id,
+                    child_name or f"Kind {safe_id}",
+                    new_birth,
+                )
+            except Exception:
+                result["saved_birth_date"] = False
         return result
     except Exception as e:
         return {"error": _tool_error(e, "Failed to switch child")}
