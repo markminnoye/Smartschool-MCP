@@ -1,0 +1,1764 @@
+# Sanitized portal endpoint catalog. No response bodies, cookies, tokens, or names.
+# Schema: docs/portal-api/README.md
+#
+# Sources:
+# - Chrome HAR docs/portal-api/raw/school-b.smartschool.be.har (gitignored), 2026-09-17
+#   parent/co-account on school-a.smartschool.be and school-b.smartschool.be
+#   (file overwritten later the same day: school B Intradesk / Zoeken / Vakken
+#   course folders, then again with Meldingen /Profile/Notify; keys merged below)
+# - Chrome HAR docs/portal-api/raw/switch-child.har (gitignored), 2026-09-22
+#   Mijn kinderen switch: gotourl → /otp/{token} → relative /Studentcard
+#   MCP calendar GET omits types by default. smartschool 0.13.0 has no
+#   PinnedPlannedElements and no includes on the list call.
+#
+# observed_on: "school-a.smartschool.be parent/co-account"
+#              | "school-b.smartschool.be parent/co-account"
+#              | "library"
+
+endpoints:
+
+  # --- Planner ---
+  - method: GET
+    path: /planner/api/v1/planned-elements/user/{userId}
+    query_keys: [from, to]
+    body_keys: []
+    module: planner
+    observed_on: school-a.smartschool.be parent/co-account
+    library: PlannedElements
+    mcp_tool: get_planned_elements
+    notes: >
+      Calendar grid omits `types` and `includes`. Types seen in the unfiltered response:
+      planned-lessons, planned-school-activities, planned-lesson-cluster-moments,
+      planned-placeholders, planned-assignments. MCP get_schedule and
+      get_planned_elements both call this path as a raw GET. Library 0.13.0
+      PlannedElements defaults to planned-assignments,planned-to-dos; pass
+      element_types=None for the unfiltered grid. The library cannot send includes
+      (upstream issue #237).
+
+  - method: GET
+    path: /planner/api/v1/planned-elements/user/{userId}
+    query_keys: [from, to, includes, types]
+    body_keys: []
+    module: planner
+    observed_on: school-a.smartschool.be parent/co-account
+    library: PlannedElements
+    mcp_tool: get_planned_elements
+    notes: >
+      Sidebar subset. Observed includes=icon,courses,locations,upload-folders,labels and
+      types=planned-to-dos,planned-lesson-cluster-assignments,planned-assignments (also
+      planned-generics, planned-lesson-free-days, planned-meetings, planned-school-activities
+      on other filtered calls). MCP passes optional `types` and `includes` on the
+      raw GET. Library 0.13.0 PlannedElements takes element_types (not includes).
+
+  - method: GET
+    path: /planner/api/v1/planned-elements/pinned
+    query_keys: [includes]
+    body_keys: []
+    module: planner
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: >
+      Observed includes=icon,courses,locations,upload-folders (and labels on this crawl).
+      smartschool 0.13.0 has no PinnedPlannedElements; smoke uses the raw GET.
+
+  - method: GET
+    path: /planner/api/v1/calendars/accessible-platform-calendars
+    query_keys: []
+    body_keys: []
+    module: planner
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /planner/api/v1/calendars/readable-platform-calendars
+    query_keys: []
+    body_keys: []
+    module: planner
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+
+  # --- Labels ---
+  - method: GET
+    path: /labels/api/v1/labels/platform
+    query_keys: []
+    body_keys: []
+    module: labels
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /labels/api/v1/labels/user
+    query_keys: []
+    body_keys: []
+    module: labels
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /labels/api/v1/groups/
+    query_keys: []
+    body_keys: []
+    module: labels
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+
+  # --- Group filters ---
+  - method: GET
+    path: /group-filters/api/v1/properties/{propertyId}
+    query_keys: []
+    body_keys: []
+    module: group-filters
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: >
+      propertyId values on Planner load: planner-generic-participants,
+      planner-school-activity-participants, planner-search-and-filter-participants,
+      planner-teaching-moment-and-placeholder-participants, template-generic-participants,
+      template-teaching-moment-and-placeholder-participants.
+
+  - method: GET
+    path: /group-filters/api/v1/properties/{propertyId}/quick-filter
+    query_keys: []
+    body_keys: []
+    module: group-filters
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Same propertyId set as the properties list above.
+
+
+  # --- Lesson content ---
+  - method: GET
+    path: /lesson-content/api/v1/assignments/applicable-assignment-types
+    query_keys: []
+    body_keys: []
+    module: lesson-content
+    observed_on: school-a.smartschool.be parent/co-account
+    library: ApplicableAssignmentTypes
+    mcp_tool: none
+    notes: >
+      Website spelling is "assignment". smartschool 0.13.0 still GETs the
+      historical typo path applicable-assigment-types.
+
+  - method: GET
+    path: /lesson-content/api/v1/assignments/applicable-assigment-types
+    query_keys: []
+    body_keys: []
+    module: lesson-content
+    observed_on: library
+    library: unmapped
+    mcp_tool: none
+    notes: Historical typo path; smartschool 0.13.0 still GETs this spelling.
+
+
+  # --- Courses ---
+  - method: GET
+    path: /course-list/api/v1/courses
+    query_keys: []
+    body_keys: []
+    module: courses
+    observed_on: school-a.smartschool.be parent/co-account
+    library: CourseList
+    mcp_tool: none
+    notes: Also used by Smartschool.platform_id. MCP get_courses uses Results courses instead.
+
+
+  # --- Topnav ---
+  - method: POST
+    path: /Topnav/Node/getToken
+    query_keys: []
+    body_keys: [userID]
+    module: topnav
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: CSRF/session token for the SPA. Body key userID only; never store the body or response.
+
+
+  # --- Publishers ---
+  - method: GET
+    path: /Publishers/Index/isbaoplatform
+    query_keys: []
+    body_keys: []
+    module: publishers
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+
+  # --- i18n ---
+  - method: GET
+    path: /smsc/locales/{locale}/{bundle}.rev-{hash}.json
+    query_keys: []
+    body_keys: []
+    module: i18n
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Static translation bundles loaded with Planner. Not student data.
+
+
+  # --- Courses ---
+  - method: POST
+    path: /Topnav/getCourseConfig
+    query_keys: []
+    body_keys: []
+    module: courses
+    observed_on: school-b.smartschool.be parent/co-account
+    library: TopNavCourses
+    mcp_tool: none
+    notes: Was library-only; now seen live on school B.
+
+
+  # --- Results / reports / periods ---
+  - method: GET
+    path: /results/api/v1/courses/
+    query_keys: []
+    body_keys: []
+    module: results
+    observed_on: school-a.smartschool.be parent/co-account
+    library: Courses
+    mcp_tool: get_courses
+    notes: >
+      Fails when no results exist yet; library suggests TopNavCourses. Seen live on school A
+      and school B.
+
+
+  # --- Course documents ---
+  - method: GET
+    path: /Documents/Index/Index/courseID/{courseId}/ssID/{platformId}
+    query_keys: []
+    body_keys: []
+    module: course-documents
+    observed_on: school-b.smartschool.be parent/co-account
+    library: FolderItem
+    mcp_tool: get_course_documents
+    notes: HTML listing, not JSON. File download URLs are parsed from the page. Live on school B. MCP download_course_document saves the parsed /Documents/Download/Index path.
+
+
+  # --- Results / reports / periods ---
+  - method: GET
+    path: /results/api/v1/evaluations/
+    query_keys: [pageNumber, itemsOnPage, componentIds, courseIds, periodIds]
+    body_keys: []
+    module: results
+    observed_on: school-a.smartschool.be parent/co-account
+    library: Results
+    mcp_tool: get_results
+    notes: >
+      Library only sends pageNumber and itemsOnPage. Live UI also filters with componentIds,
+      courseIds, periodIds.
+
+  - method: GET
+    path: /results/api/v1/evaluations/{evaluationId}
+    query_keys: []
+    body_keys: []
+    module: results
+    observed_on: school-a.smartschool.be parent/co-account
+    library: Result
+    mcp_tool: get_results
+    notes: Lazy .details on each result. Seen live from the results detail UI.
+
+  - method: GET
+    path: /results/api/v1/periods/
+    query_keys: []
+    body_keys: []
+    module: results
+    observed_on: school-a.smartschool.be parent/co-account
+    library: Periods
+    mcp_tool: get_periods
+
+  - method: GET
+    path: /results/api/v1/reports
+    query_keys: []
+    body_keys: []
+    module: results
+    observed_on: library
+    library: Reports
+    mcp_tool: get_reports
+    notes: >
+      Library path without trailing slash. Live UI calls /results/api/v1/reports/ (row below
+      in live additions).
+
+  - method: GET
+    path: "{report.download_url}"
+    query_keys: []
+    body_keys: []
+    module: results
+    observed_on: library
+    library: Report
+    mcp_tool: none
+    notes: Path comes from the reports list payload; then a second GET of the returned url.
+
+
+  # --- Legacy Agenda XML (library; not in this HAR) ---
+  - method: POST
+    path: /?module=Agenda&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: get lessons
+    module: agenda
+    observed_on: library
+    library: SmartschoolLessons
+    mcp_tool: get_schedule
+    notes: >
+      XML command params include startDateTimestamp, endDateTimestamp, filterType, filterID,
+      gridType, classID, endDateTimestampOld, forcedTeacher, forcedClass, forcedClassroom,
+      assignmentTypeID. Product Schoolagenda removed 2025-08-31.
+
+  - method: POST
+    path: /?module=Agenda&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: get hours
+    module: agenda
+    observed_on: library
+    library: SmartschoolHours
+    mcp_tool: none
+
+  - method: POST
+    path: /?module=Agenda&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: get moment info
+    module: agenda
+    observed_on: library
+    library: SmartschoolMomentInfos
+    mcp_tool: none
+
+  - method: POST
+    path: /Agenda/Futuretasks/getFuturetasks
+    query_keys: []
+    body_keys: [lastAssignmentID, lastDate, filterType, filterID]
+    module: agenda
+    observed_on: library
+    library: FutureTasks
+    mcp_tool: get_future_tasks
+    # MCP also falls back to Planner planned-assignments when this list is empty.
+
+
+  # --- Messages ---
+  - method: POST
+    path: /?module=Messages&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: message list
+    module: messages
+    observed_on: school-a.smartschool.be parent/co-account
+    library: MessageHeaders
+    mcp_tool: get_messages
+    notes: Live XML subsystem is postboxes; action message list.
+
+  - method: POST
+    path: /?module=Messages&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: show message
+    module: messages
+    observed_on: school-a.smartschool.be parent/co-account
+    library: Message
+    mcp_tool: get_messages
+    notes: Live XML subsystem is postboxes; action show message. Do not store message HTML.
+
+  - method: POST
+    path: /?module=Messages&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: attachment list
+    module: messages
+    observed_on: library
+    library: Attachments
+    mcp_tool: get_attachments
+
+  - method: GET
+    path: /?module=Messages&file=download
+    query_keys: [fileID, target]
+    body_keys: []
+    module: messages
+    observed_on: library
+    library: Attachment
+    mcp_tool: download_attachment
+    notes: MCP calls session.get directly; library Attachment.download() mis-decodes binary.
+
+  - method: POST
+    path: /?module=Messages&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: mark message unread
+    module: messages
+    observed_on: library
+    library: MarkMessageUnread
+    mcp_tool: none
+
+  - method: POST
+    path: /?module=Messages&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: save msglabel
+    module: messages
+    observed_on: library
+    library: AdjustMessageLabel
+    mcp_tool: none
+
+  - method: POST
+    path: /?module=Messages&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: quick delete
+    module: messages
+    observed_on: library
+    library: MessageMoveToTrash
+    mcp_tool: none
+
+  - method: POST
+    path: /Messages/Xhr/archivemessages
+    query_keys: []
+    body_keys: ["msgIDs[]"]
+    module: messages
+    observed_on: library
+    library: MessageMoveToArchive
+    mcp_tool: none
+
+  - method: GET
+    path: /?module=Messages&file=composeMessage
+    query_keys: [boxType, composeType, msgID]
+    body_keys: []
+    module: messages
+    observed_on: library
+    library: MessageComposerForm
+    mcp_tool: none
+
+  - method: POST
+    path: /?module=Messages&file=composeMessage
+    query_keys: [boxType, composeType, msgID]
+    body_keys: [module, file, boxType, composeType, msgID, encryptedSender, send, origMsgID, composeAction, randomDir, uniqueUsc, showTab, delFile, msgFormSelectedTab, sendDate, searchField3, searchField1, searchField4, searchField5, subject, copyToLVS, message, bcc]
+    module: messages
+    observed_on: library
+    library: MessageComposerForm
+    mcp_tool: none
+    notes: Multipart POST of the compose form. Do not log message HTML.
+
+  - method: POST
+    path: /?module=Messages&file=searchUsers
+    query_keys: []
+    body_keys: [val, type, parentNodeId, xml, uniqueUsc]
+    module: messages
+    observed_on: library
+    library: MessageComposerForm
+    mcp_tool: none
+
+  - method: POST
+    path: /?module=Messages&file=searchUsers
+    query_keys: [function]
+    body_keys: [id, typeId, type, parentNodeId, ssid, userlt, uniqueUsc]
+    module: messages
+    observed_on: library
+    library: MessageComposerForm
+    mcp_tool: none
+    notes: function=addUserToSelected.
+
+
+  # --- My Documents (library; still not opened in any live HAR, including Meldingen) ---
+  - method: GET
+    path: /mydoc/api/v1/directory-listing
+    query_keys: []
+    body_keys: []
+    module: mydocs
+    observed_on: library
+    library: MyDocsFolder
+    mcp_tool: none
+
+  - method: GET
+    path: /mydoc/api/v1/directory-listing/{folderId}
+    query_keys: []
+    body_keys: []
+    module: mydocs
+    observed_on: library
+    library: MyDocsFolder
+    mcp_tool: none
+
+  - method: POST
+    path: /mydoc/api/v1/folders/
+    query_keys: []
+    body_keys: [name, color, parentId]
+    module: mydocs
+    observed_on: library
+    library: MyDocsFolder
+    mcp_tool: none
+
+  - method: POST
+    path: /mydoc/api/v1/files/upload
+    query_keys: []
+    body_keys: [parentId, uploadDir]
+    module: mydocs
+    observed_on: library
+    library: MyDocsFolder
+    mcp_tool: none
+
+  - method: GET
+    path: /mydoc/api/v1/files/{fileId}/revisions/{revisionId}/download
+    query_keys: []
+    body_keys: []
+    module: mydocs
+    observed_on: library
+    library: MyDocsFile
+    mcp_tool: none
+
+  - method: DELETE
+    path: /mydoc/api/v1/files/{fileId}
+    query_keys: []
+    body_keys: []
+    module: mydocs
+    observed_on: library
+    library: MyDocsFile
+    mcp_tool: none
+
+  - method: DELETE
+    path: /mydoc/api/v1/folders/{folderId}
+    query_keys: []
+    body_keys: []
+    module: mydocs
+    observed_on: library
+    library: MyDocsFolder
+    mcp_tool: none
+
+  - method: POST
+    path: /mydoc/api/v1/{itemType}/{itemId}/{action}
+    query_keys: []
+    body_keys: [newName, parentId]
+    module: mydocs
+    observed_on: library
+    library: MyDocsFile
+    mcp_tool: none
+    notes: >
+      itemType is files or folders. action is rename, move, copy, trash, restore,
+      mark-as-favourite, unmark-as-favourite. Body keys depend on action (newName for rename;
+      parentId for move/copy/restore; none for trash/favourite).
+
+
+  # --- Upload (library) ---
+  - method: GET
+    path: /upload/api/v1/get-upload-directory
+    query_keys: []
+    body_keys: []
+    module: upload
+    observed_on: library
+    library: MyDocsFolder
+    mcp_tool: none
+
+  - method: POST
+    path: /Upload/Upload/Index
+    query_keys: []
+    body_keys: [file, uploadDir]
+    module: upload
+    observed_on: library
+    library: MyDocsFolder
+    mcp_tool: none
+    notes: Shared with MessageComposerForm.add_attachment.
+
+
+  # --- Intradesk ---
+  - method: GET
+    path: /intradesk/api/v1/{platformId}/directory-listing/forTreeOnlyFolders/{folderId}
+    query_keys: []
+    body_keys: []
+    module: intradesk
+    observed_on: school-b.smartschool.be parent/co-account
+    library: IntradeskFolder
+    mcp_tool: none
+    notes: Live folder listing on school B. Library always appends /{folderId} (empty id for root).
+
+  - method: GET
+    path: /intradesk/api/v1/{platformId}/files/{fileId}/download
+    query_keys: []
+    body_keys: []
+    module: intradesk
+    observed_on: library
+    library: IntradeskFile
+    mcp_tool: none
+
+
+  # --- Student support ---
+  - method: GET
+    path: /student-support/api/v1/
+    query_keys: []
+    body_keys: []
+    module: student-support
+    observed_on: school-a.smartschool.be parent/co-account
+    library: StudentSupportLinks
+    mcp_tool: get_student_support_links
+
+
+  # --- Homepage / Start ---
+  - method: GET
+    path: /
+    query_keys: []
+    body_keys: []
+    module: homepage
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: get_homepage_blocks
+    notes: MCP parses homepage__block HTML. Not a library class. Seen live as the Start page.
+
+  - method: GET
+    path: "{homepageImageUrl}"
+    query_keys: []
+    body_keys: []
+    module: homepage
+    observed_on: library
+    library: unmapped
+    mcp_tool: download_homepage_image
+    notes: Same-host image URLs extracted from homepage blocks.
+
+
+  # --- Auth ---
+  - method: POST
+    path: /login
+    query_keys: []
+    body_keys: [username, password]
+    module: auth
+    observed_on: library
+    library: Smartschool
+    mcp_tool: none
+    notes: Never commit credentials. Form field names from login_form.
+
+  - method: POST
+    path: /account-verification
+    query_keys: []
+    body_keys: [security_question_answer]
+    module: auth
+    observed_on: library
+    library: Smartschool
+    mcp_tool: none
+
+  - method: GET
+    path: /2fa/api/v1/config
+    query_keys: []
+    body_keys: []
+    module: auth
+    observed_on: library
+    library: Smartschool
+    mcp_tool: none
+
+  - method: POST
+    path: /2fa/api/v1/google-authenticator
+    query_keys: []
+    body_keys: [google2fa]
+    module: auth
+    observed_on: library
+    library: Smartschool
+    mcp_tool: none
+
+
+  # --- Live HAR additions (2026-09-17); keys only ---
+  - method: GET
+    path: /planner/api/v1/planned-elements/user/{userId}
+    query_keys: [from, to, types]
+    body_keys: []
+    module: planner
+    observed_on: school-a.smartschool.be parent/co-account
+    library: PlannedElements
+    mcp_tool: get_planned_elements
+    notes: >
+      Live filter without includes. Types on this crawl's filtered calls include
+      planned-assignments, planned-generics, planned-lesson-cluster-assignments,
+      planned-lesson-free-days, planned-meetings, planned-school-activities, planned-to-dos.
+
+  - method: GET
+    path: /planner/api/v1/planned-elements/user/{userId}
+    query_keys: [from, includes, to]
+    body_keys: []
+    module: planner
+    observed_on: school-a.smartschool.be parent/co-account
+    library: PlannedElements
+    mcp_tool: get_planned_elements
+    notes: >
+      includes without types. Observed includes also listed labels (plus icon, courses,
+      locations, upload-folders).
+
+  - method: GET
+    path: /planner/api/v1/planned-assignments/{platformId}/{assignmentId}
+    query_keys: []
+    body_keys: []
+    module: planner
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: get_planned_element_details
+    notes: >
+      Assignment detail from the Planner UI. Second path segment is a UUID-like
+      assignment id. Carries the description, attachments and upload folder.
+
+  - method: POST
+    path: /planner/api/v1/planned-lesson-clusters/list
+    query_keys: []
+    body_keys: [dateTimeFrom, dateTimeTo, id, period, type, wholeDay]
+    module: planner
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /planner/api/v1/planned-to-dos/
+    query_keys: []
+    body_keys: [color, courses, dateTimeFrom, dateTimeTo, groups, icon, name, organisers, participants, period, plannedElement, plannedElementId, plannedElementType, platformId, publicInfo, reservations, userRoles, users, weblinks, wholeDay]
+    module: planner
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Create/save to-do. Key names only; do not store name/participant values.
+
+  - method: POST
+    path: /planner/api/v1/user-settings/save/join-planned-elements
+    query_keys: []
+    body_keys: [joinPlannedElements]
+    module: planner
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /planner/api/v1/user-settings/save/todo
+    query_keys: []
+    body_keys: [showResolvedPlannedElements, showTodos]
+    module: planner
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /planner/api/v1/user-settings/save/view
+    query_keys: []
+    body_keys: [hideAfterTime, hideBeforeTime, nextDays, showTodos, showWeekends, useStartEndTime, view, zoom]
+    module: planner
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /planner/api/v1/ics/profile
+    query_keys: []
+    body_keys: [config, title, type]
+    module: planner
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: ICS feed profile save. Key names only.
+
+  - method: GET
+    path: /planner/api/v1/ics/profile/own
+    query_keys: []
+    body_keys: []
+    module: planner
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+
+  # --- i18n ---
+  - method: GET
+    path: /smsc/locales/{locale}/{bundle}.json
+    query_keys: []
+    body_keys: []
+    module: i18n
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Translation JSON without cache-busting .rev-{hash}. Same family as the rev-hash row.
+
+
+  # --- Results / reports / periods ---
+  - method: GET
+    path: /results/api/v1/components/
+    query_keys: []
+    body_keys: []
+    module: results
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /results/api/v1/feedback/
+    query_keys: []
+    body_keys: []
+    module: results
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /results/api/v1/reports/
+    query_keys: []
+    body_keys: []
+    module: results
+    observed_on: school-a.smartschool.be parent/co-account
+    library: Reports
+    mcp_tool: get_reports
+    notes: Live path has a trailing slash. Library calls /results/api/v1/reports without it.
+
+
+  # --- Messages ---
+  - method: POST
+    path: /?module=Messages&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: postboxes/calculate_postbox_counters
+    module: messages
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /?module=Messages&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: postboxes/loadtooltip
+    module: messages
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /?module=Messages&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: postboxes/smartbox list
+    module: messages
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /?module=Messages&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: quickactions/reloadunreadmessages
+    module: messages
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /?module=Messages&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: maintenance/save postbox
+    module: messages
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+
+  # --- Homepage / Start ---
+  - method: POST
+    path: /?module=Homepage&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: datepicker/get calendar items
+    module: homepage
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /?module=Homepage&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: news/news list
+    module: homepage
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /Homepage/Setting/getConfig
+    query_keys: []
+    body_keys: []
+    module: homepage
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /Homepage/Pushwizard/getwizardconfig
+    query_keys: []
+    body_keys: []
+    module: homepage
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /Homepage/Pushwizard/saveactivation
+    query_keys: []
+    body_keys: [saveaction]
+    module: homepage
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+
+  # --- Studentcard / Mijn kinderen ---
+  - method: POST
+    path: /Studentcard/Config/getConfig
+    query_keys: []
+    body_keys: []
+    module: studentcard
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /Studentcard/Student/getStudents
+    query_keys: []
+    body_keys: []
+    module: studentcard
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: >
+      Empty POST. school A returns HTTP 500 HTML unless the request sends
+      X-Requested-With: XMLHttpRequest (then application/json list). Current
+      child can have accountID 0; switch ids are in the Studentcard topnav
+      gotourl links. A client must send the XHR header and take the ids from topnav.
+
+  - method: POST
+    path: /Studentcard/Lvs/getLatestItems
+    query_keys: []
+    body_keys: []
+    module: studentcard
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /Studentcard/Messages/getLatestMessages
+    query_keys: []
+    body_keys: []
+    module: studentcard
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /Studentcard/Presence/getLatestPresences
+    query_keys: []
+    body_keys: []
+    module: studentcard
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /Studentcard/Results/getEvaluations
+    query_keys: []
+    body_keys: []
+    module: studentcard
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /Studentcard/Results/getReports
+    query_keys: []
+    body_keys: []
+    module: studentcard
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /Studentcard/Chain/gotourl/accountID/{accountId}
+    query_keys: []
+    body_keys: []
+    module: studentcard
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: >
+      HTML child-switch redirect. Path id is an account id from getStudents;
+      do not commit it. Cross-school children 302 to ``/otp/{token}`` on the
+      other host. A trusted browser then 302s from OTP with relative
+      ``Location: /Studentcard`` (no ``/login``, no ``/account-verification``).
+      Follow hop-by-hop, retarget ``main_url``, and do not POST this session's
+      password if OTP instead lands on ``/login``. After the redirect,
+      planner/results follow the new child.
+
+
+  # --- LVS ---
+  - method: POST
+    path: /?module=LVS&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: lvs/getToolbarButtons
+    module: lvs
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /?module=LVS&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: lvs_groups/getGroupPupils
+    module: lvs
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /?module=LVS&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: lvs_pupils/getCatListView
+    module: lvs
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /?module=LVS&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: lvs_pupils/getItemParams
+    module: lvs
+    observed_on: school-a.smartschool.be parent/co-account
+    library: StudentNoteDetails
+    mcp_tool: get_student_notes
+
+  - method: POST
+    path: /?module=LVS&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: lvs_pupils/getPupilInfo
+    module: lvs
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Pupil dossier payload. Catalog stores the XML action name only.
+
+  - method: POST
+    path: /?module=LVS&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: lvs_pupils/getUserData
+    module: lvs
+    observed_on: school-a.smartschool.be parent/co-account
+    library: StudentNotes, StudentAbsences
+    mcp_tool: get_student_notes, get_student_absences
+
+  - method: POST
+    path: /?module=LVS&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: lvs_pupils/getUserStart
+    module: lvs
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /?module=LVS&file=jqDispatcher_pupil
+    query_keys: [function]
+    body_keys: [gid, pid]
+    module: lvs
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Observed function=getGroupsAbove. Body keys only; drop gid/pid values.
+
+  - method: GET
+    path: /?module=LVS&file=jqDispatcher_settings
+    query_keys: [function]
+    body_keys: []
+    module: lvs
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Observed function=getEnvironmentSettings.
+
+  - method: POST
+    path: /?module=LVS&file=jqDispatcher_settings
+    query_keys: [function]
+    body_keys: [archiveID, color, getData, groupID, option, pupilID, type, value]
+    module: lvs
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: >
+      Functions: getLVSspecificTitles, getLVSstandardTitle, getPersonalSettings, setLastPupil,
+      setUserSetting. Body keys are a union across those functions.
+
+  - method: POST
+    path: /?module=LVS&file=treeBuilder
+    query_keys: []
+    body_keys: [id]
+    module: lvs
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Body key id only; values are group/tree nodes.
+
+  - method: POST
+    path: /LVS/Config/getConfig
+    query_keys: []
+    body_keys: [type]
+    module: lvs
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /LVS/Pupilpresences
+    query_keys: []
+    body_keys: [groupID, pupilID]
+    module: lvs
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Key names only.
+
+  - method: POST
+    path: /LVS/Pupilpresencesgraphs
+    query_keys: []
+    body_keys: [groupID, pupilID]
+    module: lvs
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Key names only.
+
+
+  # --- Contact moments ---
+  - method: GET
+    path: /contact-moments/api/v1/contact-moments/
+    query_keys: []
+    body_keys: []
+    module: contact-moments
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /contact-moments/api/v1/contact-moments/active
+    query_keys: []
+    body_keys: []
+    module: contact-moments
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /alert/api/v1/contact-moments-all/{userId}/calculate
+    query_keys: []
+    body_keys: []
+    module: contact-moments
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+
+  # --- Forms ---
+  - method: GET
+    path: /forms/api/v1/forms/participant
+    query_keys: [endDate, startDate]
+    body_keys: []
+    module: forms
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /forms/api/v1/forms/{formId}/{userId}
+    query_keys: []
+    body_keys: []
+    module: forms
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /forms/api/v1/form-rounds/{formRoundId}/{userId}
+    query_keys: []
+    body_keys: []
+    module: forms
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /forms/api/v1/form-items/form-rounds/{formRoundId}/{userId}
+    query_keys: []
+    body_keys: []
+    module: forms
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /forms/api/v1/entries/form/{formId}/{formRoundId}/{userId}
+    query_keys: []
+    body_keys: []
+    module: forms
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /forms/api/v1/answers/entries/{entryId}/{userId}
+    query_keys: []
+    body_keys: []
+    module: forms
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+
+  # --- Photos ---
+  - method: GET
+    path: /photos/api/v1/albums/
+    query_keys: []
+    body_keys: []
+    module: photos
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /photos/api/v1/configuration/
+    query_keys: []
+    body_keys: []
+    module: photos
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /photos/api/v1/favourites/
+    query_keys: []
+    body_keys: []
+    module: photos
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+
+  # --- Timetable SPA ---
+  - method: GET
+    path: /timetable/api/v1/
+    query_keys: []
+    body_keys: []
+    module: timetable
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: >
+      Separate timetable SPA from Planner. Seen on school A and school B; not the Agenda XML
+      dispatcher.
+
+
+  # --- Goals / leerplannen ---
+  - method: POST
+    path: /goal/selector/api/v1/leerplannen/results/{date}
+    query_keys: []
+    body_keys: [isView, selection]
+    module: goals
+    observed_on: school-a.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Opened from a results/detail context. Key names only.
+
+
+  # --- News ---
+  - method: POST
+    path: /?module=News&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: overview/getGroupsXML
+    module: news
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /?module=News&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: overview/loadMsg
+    module: news
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: News item body is in the XML command; not catalogued.
+
+
+  # --- Wiki ---
+  - method: POST
+    path: /?module=Wiki&file=dispatcher
+    query_keys: []
+    body_keys: [command]
+    xml_action: wiki/get wikis
+    module: wiki
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+
+  # --- Links ---
+  - method: GET
+    path: /links/api/v1/
+    query_keys: []
+    body_keys: []
+    module: links
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /links/api/v1/configuration
+    query_keys: []
+    body_keys: []
+    module: links
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+
+  # --- Profile ---
+  - method: GET
+    path: /topnav/getProfiles
+    query_keys: []
+    body_keys: []
+    module: profile
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /topnav/go-menu
+    query_keys: []
+    body_keys: []
+    module: profile
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Loaded with the Profile module shell on school B.
+
+
+  # --- Auth ---
+  - method: GET
+    path: /account-verification
+    query_keys: []
+    body_keys: []
+    module: auth
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: >
+      HTML challenge page. POST /account-verification body keys remain library-only in this
+      crawl.
+
+
+  # --- Second HAR (2026-09-17 school B recapture); keys only ---
+
+  # --- Intradesk ---
+  - method: GET
+    path: /intradesk
+    query_keys: []
+    body_keys: []
+    module: intradesk
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: HTML SPA shell. Seen as a HAR page (XHR+Fetch export omitted the document request).
+
+  - method: GET
+    path: /intradesk/api/v1/recent
+    query_keys: []
+    body_keys: []
+    module: intradesk
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /intradesk/api/v1/{platformId}/directory-listing/forTreeOnlyFolders
+    query_keys: []
+    body_keys: []
+    module: intradesk
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: >
+      Root listing with no folderId. Library IntradeskFolder always appends /{id}, so the
+      root call becomes a trailing slash instead of this path.
+
+  - method: POST
+    path: /intradesk/api/v1/{platformId}/files/{fileId}/mark-as-favourite
+    query_keys: []
+    body_keys: []
+    module: intradesk
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Empty JSON body (`{}`). Library MyDocs uses the same action name on /mydoc, not here.
+
+  - method: POST
+    path: /intradesk/api/v1/{platformId}/files/{fileId}/discard-as-favourite
+    query_keys: []
+    body_keys: []
+    module: intradesk
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Empty JSON body (`{}`). Library MyDocs unfavourite action is unmark-as-favourite.
+
+
+  # --- Zoeken ---
+  - method: POST
+    path: /search/api/v1/config
+    query_keys: []
+    body_keys: [pathname, query]
+    module: search
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Form body. Key names only; pathname/query values dropped.
+
+  - method: POST
+    path: /search/api/v1/query
+    query_keys: []
+    body_keys: [allCommunityPlatforms, module, queryString, since]
+    module: search
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: >
+      JSON body. Observed module enums: cooperate, documents, exercises, forms, forum,
+      intradesk, messages, news, photos, tasks, uploadzone, weblinks. Drop queryString values.
+
+
+  # --- Course documents ---
+  - method: GET
+    path: /Documents/Index/Index/courseID/{courseId}/parentID/{folderId}/ssID/{platformId}
+    query_keys: []
+    body_keys: []
+    module: course-documents
+    observed_on: school-b.smartschool.be parent/co-account
+    library: FolderItem
+    mcp_tool: get_course_documents
+    notes: Subfolder HTML. Library follows browse_url parsed from the parent page. MCP accepts that browse_url.
+
+
+  # --- Uploadzone (Vakken course folder) ---
+  - method: GET
+    path: /?module=Uploadzone&file=index
+    query_keys: [courseID, function, ssID]
+    body_keys: []
+    module: uploadzone
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: HTML shell. Observed function=main.
+
+  - method: POST
+    path: /?module=Uploadzone&file=dispatcher
+    query_keys: [function]
+    body_keys: [command]
+    xml_action: page/start
+    module: uploadzone
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: >
+      XML subsystem is page. `<action>` is base64 JSON; inner keys module, file, function,
+      courseID, ssID. Observed file=start, function=start. Do not store the JSON.
+
+  - method: POST
+    path: /?module=Uploadzone&file=dispatcher
+    query_keys: [function]
+    body_keys: [command]
+    xml_action: page/uploadmapdetail
+    module: uploadzone
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: >
+      Same dispatcher. Inner JSON file=uploadmapdetail. Extra keys seen: mapID, randomDir,
+      userID, userLT, userSsID. Functions: uploadmapdetail, uploadmapdetailuser.
+
+  - method: POST
+    path: /?module=Uploadzone&file=tree
+    query_keys: [courseID, ssID]
+    body_keys: [id]
+    module: uploadzone
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Folder tree. Body key id only; drop values.
+
+
+  # --- Vakken course HTML shells ---
+  - method: GET
+    path: /planner/course/courseID/{courseId}/ssID/{platformId}
+    query_keys: []
+    body_keys: []
+    module: courses
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Planner course page HTML.
+
+  - method: GET
+    path: /Weblinks/Index/Index/courseID/{courseId}/ssID/{platformId}
+    query_keys: []
+    body_keys: []
+    module: weblinks
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /Classmates/Index/Index/courseID/{courseId}/ssID/{platformId}
+    query_keys: []
+    body_keys: []
+    module: classmates
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /Lpaths/Index/Index/courseID/{courseId}/ssID/{platformId}
+    query_keys: []
+    body_keys: []
+    module: lpaths
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: get_learning_paths
+
+  - method: GET
+    path: /Tasks/Index/Index/courseID/{courseId}/ssID/{platformId}
+    query_keys: []
+    body_keys: []
+    module: tasks
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /course/video-call/courseID/{courseId}/ssID/{platformId}
+    query_keys: []
+    body_keys: []
+    module: video-call
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /?module=News&file=coursenews
+    query_keys: [courseID, function, ssID]
+    body_keys: []
+    module: news
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Course news HTML. function=main when present.
+
+  - method: GET
+    path: /?module=Exercises&file=index
+    query_keys: [courseID, function, ssID]
+    body_keys: []
+    module: exercises
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Observed function=main.
+
+  - method: GET
+    path: /?module=Cooperate&file=index
+    query_keys: [courseID, function, ssID]
+    body_keys: []
+    module: cooperate
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Observed function=main.
+
+  - method: GET
+    path: /?module=Forum&file=showforum
+    query_keys: [courseID, function, ssID]
+    body_keys: []
+    module: forum
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Observed function=main.
+
+  - method: GET
+    path: /?module=Wiki&file=index
+    query_keys: [courseID, function, ssID]
+    body_keys: []
+    module: wiki
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Course wiki HTML shell. Dispatcher POST wiki/get wikis is a separate row.
+
+
+  # --- Video-call / planner course APIs ---
+  - method: GET
+    path: /course/api/v1/video-call/{courseId}/{platformId}
+    query_keys: []
+    body_keys: []
+    module: video-call
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /course/api/v1/video-call/{courseId}/{platformId}/info
+    query_keys: []
+    body_keys: []
+    module: video-call
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /video-call/api/v1/services
+    query_keys: []
+    body_keys: []
+    module: video-call
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /planner/api/v1/course-management/courses/{courseId}/{platformId}/teachers
+    query_keys: []
+    body_keys: []
+    module: planner
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: GET
+    path: /planner/api/v1/planned-elements/search/course-links/filters
+    query_keys: []
+    body_keys: []
+    module: planner
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+
+  # --- Third HAR (2026-09-17 school B Meldingen); keys only ---
+
+  - method: GET
+    path: /Profile/Notify
+    query_keys: []
+    body_keys: []
+    module: notifications
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: >
+      HTML settings/bell shell. Seen as a HAR page (XHR+Fetch export omitted the document
+      request). Data calls are the POST /Profile/Notify/* rows below.
+
+  - method: POST
+    path: /Profile/Notify/getActionSettings
+    query_keys: []
+    body_keys: []
+    module: notifications
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /Profile/Notify/getEventSettings
+    query_keys: []
+    body_keys: []
+    module: notifications
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /Profile/Notify/getMobileDevices
+    query_keys: []
+    body_keys: []
+    module: notifications
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+
+  - method: POST
+    path: /Profile/Notify/saveShowNotifyAlerts
+    query_keys: []
+    body_keys: [value]
+    module: notifications
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Form body. Key name only; value is a boolean-like flag.
+
+  - method: POST
+    path: /Profile/Notify/saveSetting
+    query_keys: []
+    body_keys: ["extra[endTime]", "extra[startTime]", name, type, value]
+    module: notifications
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: >
+      Form body. Union of keys across toggles. extra[startTime]/extra[endTime] only on some
+      quiet-hours saves. Observed type=action|event. Observed name keys (identifiers only):
+      notification_action_followme, notification_action_school_can_wait_{entire_day,monday,
+      tuesday,wednesday,thursday,friday,saturday,sunday}, messages_new_message_{mobile,browser},
+      contactmoments_{invite,reminder}_{mobile,browser}, photos_new_media_{mobile,browser},
+      helpdesk_ticket_created_{browser,mobile}, helpdesk_ticket_assigned_{mobile,browser},
+      helpdesk_reply_created_{browser,mobile}, lvs_items_saved_{mobile,browser},
+      news_new_message_{mobile,browser}, planner_planner_planned_element_reminder_{browser,mobile},
+      results_new_results_{mobile,browser}, results_new_report_{browser,mobile}. Drop values.
+
+  - method: POST
+    path: /Profile/Notify/saveAllowPushNotifications
+    query_keys: []
+    body_keys: [allowPushNotifications, applicationID]
+    module: notifications
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: Form body. applicationID is a UUID-like client id; drop values.
+
+  - method: GET
+    path: /?module=Profile
+    query_keys: []
+    body_keys: []
+    module: profile
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: HTML Profile shell. HAR page alongside /Profile/Notify; XHR export omitted the document.
+
+  - method: GET
+    path: /?module=Messages
+    query_keys: [msgID]
+    body_keys: []
+    module: messages
+    observed_on: school-b.smartschool.be parent/co-account
+    library: unmapped
+    mcp_tool: none
+    notes: >
+      HTML message view opened from the Notify flow. Query key msgID only; drop the id.
+      List/detail data still go through POST /?module=Messages&file=dispatcher.
+

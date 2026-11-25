@@ -193,3 +193,6 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 dev/
+
+# Portal HAR exports hold cookies, names and grades (docs/portal-api/README.md)
+docs/portal-api/raw/
